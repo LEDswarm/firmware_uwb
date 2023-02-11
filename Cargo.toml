@@ -6,7 +6,7 @@ edition = "2021"
 resolver = "2"
 
 [profile.release]
-opt-level = "s"
+opt-level = 3
 
 [profile.dev]
 debug = true # Symbols are nice and they don't increase the size on Flash
@@ -17,7 +17,7 @@ pio = ["esp-idf-sys/pio"]
 
 [dependencies]
 esp-idf-sys = { version = "0.31.11", features = ["binstart"] }
-
+esp-wifi = { git = "https://github.com/esp-rs/esp-wifi", features = ['esp32']}
 
 [build-dependencies]
 embuild = "0.30.4"
