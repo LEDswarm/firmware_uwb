@@ -19,10 +19,13 @@ pio = ["esp-idf-sys/pio"]
 esp-idf-sys = { version = "0.32", features = ["binstart"] }
 esp-idf-svc = "0.45"
 esp-idf-hal = "0.40"
+embedded-graphics = "0.7.1"
 embedded-hal = "0.2"
 embedded-svc = "0.24"
 dotenv = "0.15.0"
 dw3000 = { version = "0.2", features = ['std'] }
+anyhow = "1.0.69"
+ssd1306 = "0.7.1"
 
 [build-dependencies]
 embuild = "0.30.4"
