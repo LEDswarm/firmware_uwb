@@ -16,9 +16,9 @@ opt-level = "z"
 pio = ["esp-idf-sys/pio"]
 
 [dependencies]
-embedded-svc = "0.24.0"
+embedded-hal = "0.2"
 esp-idf-sys = { version = "0.31.11", features = ["binstart"] }
-esp-wifi = { git = "https://github.com/esp-rs/esp-wifi", features = ['esp32', 'wifi', 'ble']}
+esp-wifi = { git = "https://github.com/esp-rs/esp-wifi", features = ['esp32', 'wifi', 'embedded-svc', 'ble'] }
 
 [build-dependencies]
 embuild = "0.30.4"
