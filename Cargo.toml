@@ -6,7 +6,7 @@ edition = "2021"
 resolver = "2"
 
 [profile.release]
-opt-level = 3
+opt-level = "s"
 
 [profile.dev]
 debug = true # Symbols are nice and they don't increase the size on Flash
@@ -22,7 +22,7 @@ esp-idf-hal = "0.40"
 embedded-hal = "0.2"
 embedded-svc = "0.24"
 dotenv = "0.15.0"
-dw3000 = "0.2"
+dw3000 = { version = "0.2", features = ['std'] }
 
 [build-dependencies]
 embuild = "0.30.4"
