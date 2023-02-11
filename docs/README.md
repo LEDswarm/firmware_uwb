@@ -1,5 +1,7 @@
 # firmware_rust_esp32_uwb
 
+**Make sure you always source `clang`'s Xtensa environment variable using e.g.: `source ~/rust-esp32/export-esp.sh` beforehand or your build will fail!**
+
 ## Dev Containers
 This repository offers Dev Containers supports for:
 -  [Gitpod](https://gitpod.io/)
