@@ -22,7 +22,7 @@ use wireless::Wireless;
 fn main() {
     esp_idf_sys::link_patches();//Needed for esp32-rs
     println!("Entered Main function!");
-    
+
     let peripherals         = Peripherals::take().unwrap();
     let sys_loop   = EspSystemEventLoop::take().unwrap();
     let nvs = EspDefaultNvsPartition::take().unwrap();
@@ -39,6 +39,8 @@ fn main() {
         peripherals.pins.gpio22,
     );
     display.render_raw(ImageRaw::new(include_bytes!("./rust.raw"), 64));
+    sleep(Duration::new(5,0));
+    display.clear();
 
     /*loop{
         println!("IP info: {:?}", wifi_driver.sta_netif().get_ip_info().unwrap());
