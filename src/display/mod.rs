@@ -38,4 +38,10 @@ impl<'a> Display<'a> {
         im.draw(&mut self.display).unwrap();
         self.display.flush().unwrap();
     }
+
+    /// Clear all contents of the OLED screen
+    pub fn clear() {
+        self.display.clear();
+        self.display.flush().unwrap();
+    }
 }
