@@ -22,8 +22,9 @@ use wireless::Wireless;
 fn main() {
     esp_idf_sys::link_patches();//Needed for esp32-rs
     println!("Entered Main function!");
-    let peripherals = Peripherals::take().unwrap();
-    let sys_loop = EspSystemEventLoop::take().unwrap();
+    
+    let peripherals         = Peripherals::take().unwrap();
+    let sys_loop   = EspSystemEventLoop::take().unwrap();
     let nvs = EspDefaultNvsPartition::take().unwrap();
 
     let wireless = Wireless::new(
