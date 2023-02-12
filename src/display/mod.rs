@@ -1,5 +1,4 @@
 use esp_idf_hal::i2c::*;
-use esp_idf_hal::peripherals::Peripherals;
 use ssd1306::{prelude::*, I2CDisplayInterface, Ssd1306};
 use ssd1306::mode::BufferedGraphicsMode;
 use esp_idf_hal::prelude::*;
@@ -8,6 +7,8 @@ use embedded_graphics::{
     pixelcolor::BinaryColor,
     prelude::*,
 };
+use esp_idf_hal::i2c::I2C0;
+use esp_idf_hal::gpio::{Gpio21, Gpio22};
 
 pub struct Display<'a> {
     display: Ssd1306<
@@ -18,11 +19,7 @@ pub struct Display<'a> {
 }
 
 impl<'a> Display<'a> {
-    pub fn new(peripherals: &'a mut Peripherals) -> Self {
-        let i2c = &mut peripherals.i2c0;
-        let sda = &mut peripherals.pins.gpio21;
-        let scl = &mut peripherals.pins.gpio22;
-
+    pub fn new(i2c: I2C0, sda: Gpio21, scl: Gpio22) -> Self {
         let config = I2cConfig::new().baudrate(100.kHz().into());
         let i2c = I2cDriver::new(i2c, sda, scl, &config).unwrap();
 
