@@ -8,7 +8,7 @@ use embedded_graphics::{
     prelude::*,
 };
 use esp_idf_hal::i2c::I2C0;
-use esp_idf_hal::gpio::{Gpio21, Gpio22};
+use esp_idf_hal::gpio::{Gpio6, Gpio7};
 
 pub struct Display<'a> {
     display: Ssd1306<
@@ -19,7 +19,7 @@ pub struct Display<'a> {
 }
 
 impl<'a> Display<'a> {
-    pub fn new(i2c: I2C0, sda: Gpio21, scl: Gpio22) -> Self {
+    pub fn new(i2c: I2C0, sda: Gpio6, scl: Gpio7) -> Self {
         let config = I2cConfig::new().baudrate(100.kHz().into());
         let i2c = I2cDriver::new(i2c, sda, scl, &config).unwrap();
 
