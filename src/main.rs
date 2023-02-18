@@ -32,7 +32,7 @@ fn main() {
         sys_loop,
         nvs,
     );
-
+/*
     let mut display = Display::new(
         peripherals.i2c0,
         peripherals.pins.gpio21,
@@ -41,7 +41,7 @@ fn main() {
     display.render_raw(ImageRaw::new(include_bytes!("./rust.raw"), 64));
     sleep(Duration::new(5,0));
     display.clear();
-
+*/
     /*loop{
         println!("IP info: {:?}", wifi_driver.sta_netif().get_ip_info().unwrap());
         sleep(Duration::new(10,0));
