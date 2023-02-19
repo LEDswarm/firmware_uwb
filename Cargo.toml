@@ -29,6 +29,7 @@ anyhow = "1.0.69"
 ssd1306 = "0.7.1"
 smart-leds = "0.3"
 ws2812-esp32-rmt-driver = "0.5"
+smart-leds-trait = "0.2"
 
 [build-dependencies]
 embuild = "0.30.4"
