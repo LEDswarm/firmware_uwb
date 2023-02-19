@@ -12,6 +12,9 @@ use esp_idf_svc::{
 };
 use esp_idf_hal::peripherals::Peripherals;
 use embedded_graphics::image::ImageRaw;
+use smart_leds_trait::{SmartLedsWrite, White};
+use ws2812_esp32_rmt_driver::driver::color::LedPixelColorGrbw32;
+use ws2812_esp32_rmt_driver::{LedPixelEsp32Rmt, RGBW8};
 
 mod display;
 mod wireless;
@@ -32,6 +35,9 @@ fn main() {
         sys_loop,
         nvs,
     );
+
+    let led_pin = 20;
+    let mut ws2812 = LedPixelEsp32Rmt::<RGBW8, LedPixelColorGrbw32>::new(0, led_pin).unwrap();
 /*
     let mut display = Display::new(
         peripherals.i2c0,
@@ -48,6 +54,8 @@ fn main() {
     }*/
 
     loop {
+        let pixels = std::iter::repeat(RGBW8::from((6, 0, 0, White(0)))).take(7);
+        ws2812.write(pixels).unwrap();
         wireless.print_ip_info();
         sleep(Duration::new(5,0));
     }
