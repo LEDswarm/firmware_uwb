@@ -11,17 +11,17 @@ use esp_idf_svc::{
     eventloop::EspSystemEventLoop,
 };
 use esp_idf_hal::peripherals::Peripherals;
-use embedded_graphics::image::ImageRaw;
-use smart_leds_trait::{SmartLedsWrite, White};
-use ws2812_esp32_rmt_driver::driver::color::LedPixelColorGrbw32;
-use ws2812_esp32_rmt_driver::{LedPixelEsp32Rmt, RGBW8};
-use colorsys::{Rgb, Hsl, ColorAlpha};
+use accelerometer::vector::F32x3;
 
-mod display;
 mod wireless;
+mod led;
+mod sensors;
+mod moving_average;
 
-use display::Display;
 use wireless::Wireless;
+use led::LED;
+use sensors::Sensors;
+use moving_average::MovingAverage;
 
 fn main() {
     esp_idf_sys::link_patches();//Needed for esp32-rs
@@ -37,52 +37,45 @@ fn main() {
         nvs,
     );
 
-    let led_pin = 20;
-    let mut ws2812 = LedPixelEsp32Rmt::<RGBW8, LedPixelColorGrbw32>::new(0, led_pin).unwrap();
-/*
-    let mut display = Display::new(
-        peripherals.i2c0,
-        peripherals.pins.gpio21,
-        peripherals.pins.gpio22,
-    );
-    display.render_raw(ImageRaw::new(include_bytes!("./rust.raw"), 64));
-    sleep(Duration::new(5,0));
-    display.clear();
-*/
-    /*loop{
-        println!("IP info: {:?}", wifi_driver.sta_netif().get_ip_info().unwrap());
-        sleep(Duration::new(10,0));
-    }*/
+    let mut led = LED::new();
 
     wireless.print_ip_info();
-    let mut hue = 0.0;
 
-    let brightness = 0.05;
+    let mut sensors = Sensors::new(
+        peripherals.i2c0,
+        peripherals.pins.gpio6, // SDA
+        peripherals.pins.gpio7, // SCL
+    );
+
+    let mut deltas = MovingAverage::new();
+    let mut current_vector_len = 0.1;
+    let mut last_vector_len;
 
     loop {
-        let mut hsl = Hsl::default();
-        // Hsl { h: 0, s: 0, l: 0, a: 1 }
-        hsl.set_saturation(100.0);
-        hsl.set_lightness(50.0);
-        hsl.set_hue(hue);
-        let rgb = Rgb::from(&hsl);
-        let pixels = std::iter::repeat(
-            RGBW8::from((
-                (rgb.red() * brightness) as u8,
-                (rgb.green() * brightness) as u8,
-                (rgb.blue() * brightness) as u8,
-                White(0),
-            ))
-        ).take(7);
-        ws2812.write(pixels).unwrap();
-        // wireless.print_ip_info();
+        last_vector_len = current_vector_len;
 
-        if hue < 360.0 {
-            hue += 1.0;
-        } else {
+        current_vector_len = get_vector_length(sensors.get_accelerometer_reading());
+        deltas.add_value((current_vector_len - last_vector_len).abs());
+
+        let mut hue = (120.0 - deltas.get_average() * 5.0 * 120.0).round();
+
+        if hue > 120.0 {
+            hue = 120.0;
+        } else if hue < 0.0 {
             hue = 0.0;
         }
 
-        sleep(Duration::from_millis(20));
+        println!("{:?}", hue);
+        led.fill_hue(hue);
+
+        sleep(Duration::from_millis(8));
     }
+}
+
+fn get_vector_length(xyz: F32x3) -> f32 {
+    (
+        f32::powf(xyz.x, 2.0)
+        + f32::powf(xyz.y, 2.0)
+        + f32::powf(xyz.z, 2.0)
+    ).sqrt()
 }
