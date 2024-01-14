@@ -1,47 +1,63 @@
-use esp_idf_hal::i2c::*;
-use ssd1306::{prelude::*, I2CDisplayInterface, Ssd1306};
-use ssd1306::mode::BufferedGraphicsMode;
-use esp_idf_hal::prelude::*;
 use embedded_graphics::{
-    image::{Image, ImageRaw},
+    mono_font::{ascii::FONT_9X15, MonoTextStyle},
     pixelcolor::BinaryColor,
     prelude::*,
+    text::Text,
+    image::Image,
 };
-use esp_idf_hal::i2c::I2C0;
-use esp_idf_hal::gpio::{Gpio21, Gpio22};
+use tinybmp::Bmp;
+use ssd1306::{mode::BufferedGraphicsMode, prelude::*, I2CDisplayInterface, Ssd1306};
+use esp_idf_hal::i2c::*;
 
-pub struct Display<'a> {
-    display: Ssd1306<
-        I2CInterface<I2cDriver<'a>>,
-        DisplaySize128x64,
-        BufferedGraphicsMode<DisplaySize128x64>
-    >,
+pub struct ControllerDisplay<'a> {
+    display: Option<Ssd1306<I2CInterface<esp_idf_hal::i2c::I2cDriver<'a>>, DisplaySize128x64, BufferedGraphicsMode<DisplaySize128x64>>>,
 }
 
-impl<'a> Display<'a> {
-    pub fn new(i2c: I2C0, sda: Gpio21, scl: Gpio22) -> Self {
-        let config = I2cConfig::new().baudrate(100.kHz().into());
-        let i2c = I2cDriver::new(i2c, sda, scl, &config).unwrap();
-
-        let interface = I2CDisplayInterface::new(i2c);
-        let mut display = Ssd1306::new(interface, DisplaySize128x64, DisplayRotation::Rotate0)
-            .into_buffered_graphics_mode();
-        display.init().unwrap();
-
+impl<'a> ControllerDisplay<'a> {
+    pub fn new() -> Self {
         Self {
-            display,
+            display: None,
         }
     }
 
-    pub fn render_raw(&mut self, raw: ImageRaw<BinaryColor>) {
-        let im = Image::new(&raw, Point::new(32, 0));
-        im.draw(&mut self.display).unwrap();
-        self.display.flush().unwrap();
+    pub fn setup(&mut self, i2c: I2cDriver<'a>) -> anyhow::Result<()> {
+        let interface = I2CDisplayInterface::new(i2c);
+        let mut display = Ssd1306::new(interface, DisplaySize128x64, DisplayRotation::Rotate0)
+            .into_buffered_graphics_mode();
+        display.init()?;
+        self.display = Some(display);
+        Ok(())
     }
 
-    /// Clear all contents of the OLED screen
-    pub fn clear(&mut self) {
-        self.display.clear();
-        self.display.flush().unwrap();
+    pub fn bootscreen(&mut self) {
+        // Include the BMP file data.
+        let bmp_data = include_bytes!("../../assets/bootscreen_h48.bmp");
+
+        // Parse the BMP file.
+        let bmp = Bmp::from_slice(bmp_data).unwrap();
+
+        let display = self.display.as_mut().unwrap();
+
+        // Draw the image with the top left corner at (10, 20) by wrapping it in
+        // an embedded-graphics `Image`.
+        Image::new(&bmp, Point::new(0, 16)).draw(display).unwrap();
+
+        // Create a new character style
+        let style = MonoTextStyle::new(&FONT_9X15, BinaryColor::On);
+
+        // Create a text at position (0, 0) and draw it using the previously defined style
+        Text::new("0.1.0", Point::new(0, 13), style).draw(display).unwrap();
+
+        Text::new("D", Point::new(70, 13), style).draw(display).unwrap();
+
+        display.flush().unwrap();
+    }
+
+    pub fn draw_image(&mut self, bmp_data: &[u8]) {
+        let display = self.display.as_mut().unwrap();
+
+        let bmp = Bmp::from_slice(bmp_data).unwrap();
+        Image::new(&bmp, Point::new(0, 0)).draw(display).unwrap();
+        display.flush().unwrap();
     }
 }
