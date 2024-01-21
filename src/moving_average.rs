@@ -9,7 +9,7 @@ pub struct MovingAverage {
 impl MovingAverage {
     pub fn new() -> Self {
         Self {
-            buffer: vec![0.0; 20],
+            buffer: vec![0.0; 40],
             index: 0,
             current_magnitude: 0.0,
             previous_magnitude: 0.0,
