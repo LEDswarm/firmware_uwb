@@ -1,5 +1,5 @@
 [package]
-name = "firmware-uwb-xtensa-idf"
+name = "ledswarm_firmware"
 version = "0.1.0"
 authors = ["Moritz Riede <moritz@mriede.com>"]
 edition = "2021"
@@ -24,6 +24,7 @@ experimental = ["esp-idf-svc/experimental"]
 embassy = ["esp-idf-svc/embassy-sync", "esp-idf-svc/critical-section", "esp-idf-svc/embassy-time-driver"]
 
 [dependencies]
+ledswarm_protocol = { path = "../ledswarm_protocol" }
 log = { version = "0.4", default-features = false }
 esp-idf-svc = { version = "0.47.3", default-features = false }
 ws2812-esp32-rmt-driver = "0.6.0"
@@ -38,7 +39,6 @@ anyhow = "1.0.79"
 embedded-graphics = "0.8.1"
 ssd1306 = "0.8.4"
 esp-idf-hal = "0.42.5"
-dw3000 = { path = "../dw3000", features = ['std'] }
 tinybmp = "0.5.0"
 futures = "0.3.30"
 serde = "1.0.195"
