@@ -7,7 +7,7 @@ use crate::controller::ControllerMode;
 
 pub mod blink;
 
-use blink::{Blink, BlinkTimeline};
+use blink::{LedState, LedTimeline};
 
 pub struct LedConfig {
     pub pin: u32,
@@ -19,7 +19,7 @@ pub struct LedConfig {
 /// This struct abstracts the interface to the `ws2812_esp32_rmt_driver` to provide a method API
 pub struct Led {
     driver: LedPixelEsp32Rmt::<RGBW8, LedPixelColorGrbw32>,
-    config: LedConfig,
+    pub config: LedConfig,
 }
 
 impl Led {
@@ -31,7 +31,7 @@ impl Led {
     }
 
     pub fn pattern(&mut self, state: &ControllerMode, time: u32) {
-        let timeline = BlinkTimeline::from(state);
+        let timeline = LedTimeline::from(state);
         let color = timeline.get_current_color(time);
         self.set_rgbw(color.0, color.1, color.2, color.3);
     }

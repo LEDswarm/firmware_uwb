@@ -1,37 +1,83 @@
-//! Compose time-based single-color patterns for the LED, such as blink codes or other visual indicators.
+//! The possible states of the LED controller along with utilities to compose them into a timeline for states.
+//!
+//! This definition serves as a common interface for the LED controller to be used by the game modes and can also be
+//! used to implement blink codes for error handling or provide feedback to the user.
 
 use crate::controller::ControllerMode;
 
-/// A single LED color change with a given duration.
-pub struct Blink {
-    duration: u32,
-    color: (u8, u8, u8, u8),
+
+/// A single color for all diodes, or an array individually addressing the LEDs.
+pub enum LedMode {
+    /// All of the LEDs are set to the same color.
+    Simultaneous((u8, u8, u8, u8)),
+
+    /// The color of each LED is set individually.
+    Individual([(u8, u8, u8, u8); 7]),
 }
 
-impl Blink {
-    pub fn new(duration: u32, color: (u8, u8, u8, u8)) -> Self {
+/// The color values of the LED at a certain point in time, addressed simultaneously or individually.
+pub struct LedState {
+    /// The duration of this state change in milliseconds.
+    pub duration: u32,
+    /// Defines how the LEDs are addressed.
+    pub mode:     LedMode,
+}
+
+impl LedState {
+    /// Request a single color from the LED state.
+    ///
+    /// For simultanous mode, this will just return the color, and if mistakenly
+    /// used in individual mode, the first color in the buffer will be used.
+    pub fn get_single_color(&self) -> (u8, u8, u8, u8) {
+        match self.mode {
+            LedMode::Simultaneous(color) => color,
+            LedMode::Individual(colors) => colors[0],
+        }
+    }
+
+    /// Request a buffer of seven individual colors from the LED state.
+    ///
+    /// This will simply return the buffer in individual mode, or create a buffer
+    /// with seven identical colors from the color of the simultaneous mode.
+    pub fn get_color_array(&self) -> [(u8, u8, u8, u8); 7] {
+        match self.mode {
+            LedMode::Simultaneous(color) => [color; 7],
+            LedMode::Individual(colors) => colors,
+        }
+    }
+
+    /// Create a new LED state with a single color for all LEDs.
+    pub fn all(duration: u32, color: (u8, u8, u8, u8)) -> Self {
         Self {
             duration,
-            color,
+            mode: LedMode::Simultaneous(color),
+        }
+    }
+
+    /// Create a new LED state with a different color for each LED.
+    pub fn each(duration: u32, colors: [(u8, u8, u8, u8); 7]) -> Self {
+        Self {
+            duration,
+            mode: LedMode::Individual(colors),
         }
     }
 }
 
 /// A sequence of color changes.
-pub struct BlinkTimeline {
-    patterns: Vec<Blink>,
+pub struct LedTimeline {
+    states: Vec<LedState>,
 }
 
-impl BlinkTimeline {
+impl LedTimeline {
     pub fn get_current_color(&self, time: u32) -> (u8, u8, u8, u8) {
-        let total_duration: u32 = self.patterns.iter().map(|pattern| pattern.duration).sum();
+        let total_duration: u32 = self.states.iter().map(|pattern| pattern.duration).sum();
         let time_in_cycle = time % total_duration;
 
         let mut elapsed = 0;
-        for pattern in &self.patterns {
+        for pattern in &self.states {
             elapsed += pattern.duration;
             if time_in_cycle < elapsed {
-                return pattern.color;
+                return pattern.get_single_color();
             }
         }
 
@@ -39,53 +85,60 @@ impl BlinkTimeline {
         (0, 0, 0, 30)
     }
 
-    pub fn new(patterns: Vec<Blink>) -> Self {
+    pub fn new(states: Vec<LedState>) -> Self {
         Self {
-            patterns,
+            states,
         }
     }
 }
 
-impl From<&ControllerMode> for BlinkTimeline {
+impl From<&ControllerMode> for LedTimeline {
     fn from(mode: &ControllerMode) -> Self {
         match &mode {
             ControllerMode::Discovery { .. } => {
                 Self::new(vec![
-                    Blink::new(1000, (0, 255, 255, 0)),
-                    Blink::new(1000, (0, 0, 0, 0)),
+                    LedState::all(1000, (0, 255, 255, 0)),
+                    LedState::all(1000, (0, 0, 0, 0)),
                 ])
             },
             ControllerMode::Connecting { .. } => {
                 Self::new(vec![
-                    Blink::new(500, (0, 255, 255, 0)),
-                    Blink::new(500, (0, 0, 0, 0)),
+                    LedState::all(500, (0, 255, 255, 0)),
+                    LedState::all(500, (0, 0, 0, 0)),
                 ])
             },
             ControllerMode::Client { .. } => {
                 Self::new(vec![
-                    Blink::new(50, (0, 0, 0, 100)),
-                    Blink::new(50, (0, 0, 0, 0)),
-                    Blink::new(50, (0, 0, 0, 100)),
-                    Blink::new(850, (0, 0, 0, 0)),
+                    LedState::all(50, (0, 100, 0, 0)),
+                    LedState::all(50, (0, 0, 0, 0)),
+                    LedState::all(50, (0, 100, 0, 0)),
+                    LedState::all(850, (0, 0, 0, 0)),
                 ])
             },
             ControllerMode::Master { .. } => {
                 Self::new(vec![
-                    Blink::new(50, (0, 100, 0, 0)),
-                    Blink::new(50, (0, 0, 0, 0)),
-                    Blink::new(50, (0, 100, 0, 0)),
-                    Blink::new(850, (0, 0, 0, 0)),
+                    LedState::all(50, (0, 100, 0, 0)),
+                    LedState::all(50, (0, 0, 0, 0)),
+                    LedState::all(50, (0, 100, 0, 0)),
+                    LedState::all(850, (0, 0, 0, 0)),
                 ])
             },
             ControllerMode::ServerMeditation => {
-                let mut patterns = vec![];
+                let mut states = vec![];
 
                 for t in 0 .. 400 {
                     let color = get_smooth_rainbow_color(t as f32 / 200.0);
-                    patterns.push(Blink::new(2, (color.0, color.1, color.2, 0)));
+                    states.push(LedState::all(2, (color.0, color.1, color.2, 0)));
                 }
 
-                Self::new(patterns)
+                Self::new(states)
+            },
+
+            _ => {
+                Self::new(vec![
+                    LedState::all(1000, (0, 0, 0, 0)),
+                    LedState::all(1000, (0, 0, 0, 100)),
+                ])
             },
         }
     }
