@@ -16,6 +16,7 @@ use crate::moving_average::{MovingAverage, self};
 
 use ledswarm_protocol::{Message, Request, Notice};
 
+#[derive(Debug, Clone, PartialEq)]
 pub enum ControllerMode {
     /// The controller is currently trying to find nearby devices to build a mesh with.
     ///
@@ -39,6 +40,7 @@ pub enum ControllerMode {
     Game(GameMode),
 }
 
+#[derive(Debug, Clone, PartialEq)]
 pub enum GameMode {
     /// The controller is currently not in a game session.
     Idle,
@@ -59,28 +61,10 @@ pub struct Controller<'a> {
     pub start_time: Instant,
     wifi: Option<WifiController<'a>>,
     led:  Led,
-    timer: EspTaskTimerService,
-    sys_loop: EspSystemEventLoop,
-    nvs: EspDefaultNvsPartition,
-    //i2c: I2cDriver<'a>,
 }
 
 impl<'a> Controller<'a> {
-    pub fn new(
-        timer: EspTaskTimerService,
-        sys_loop: EspSystemEventLoop,
-        nvs: EspDefaultNvsPartition,
-        msg_rx: mpsc::Receiver<Message>,
-    ) -> Self {
-    /*
-        let i2c = peripherals.i2c0;
-        let sda = peripherals.pins.gpio21;
-        let scl = peripherals.pins.gpio22;
-
-        let config = I2cConfig::new().baudrate(100.kHz().into());
-        let i2c = I2cDriver::<'a>::new(i2c, sda, scl, &config).unwrap();
-    */
-
+    pub fn new(msg_rx: mpsc::Receiver<Message>) -> Self {
         let (tx, rx): (mpsc::Sender<ControllerMode>, mpsc::Receiver<ControllerMode>) = mpsc::channel();
 
         Self {
@@ -91,10 +75,6 @@ impl<'a> Controller<'a> {
             start_time: Instant::now(),
             wifi:       None,
             led:        Led::new(LedConfig { pin: 0, intensity: 0.3 }),
-            timer,
-            sys_loop,
-            nvs,
-            //i2c,
         }
     }
 
@@ -123,53 +103,83 @@ impl<'a> Controller<'a> {
         self.mode = ControllerMode::Game(GameMode::LastOneStanding);
 
         loop {
+            let try_recv = self.rx.try_recv();
+            if !try_recv.is_err() {
+                self.mode = try_recv.unwrap();
+            }
+
+            let try_msg_recv = self.msg_rx.try_recv();
+            if !try_msg_recv.is_err() {
+                match try_msg_recv.unwrap() {
+                    Message::Request(req) => {
+                        match req {
+                            Request::SetBrightness(brightness) => {
+                                let mut num = brightness.parse::<f32>().unwrap();
+
+                                if num > 1.0 {
+                                    num = 1.0;
+                                } else if num < 0.0 {
+                                    num = 0.0;
+                                }
+
+                                self.led.config.intensity = num;
+                            },
+                            _ => {},
+                        }
+                    },
+                    Message::Notice(notice) => {
+                        match notice {
+                            Notice::Accelerometer(delta) => {
+                                current_delta = delta;
+                            },
+                            _ => {},
+                        }
+                    },
+                    _ => {},
+                }
+            }
+
+            // Choose how to
             match &self.mode {
-                ControllerMode::Discovery
-                | ControllerMode::Connecting
-                | ControllerMode::ServerMeditation => {
+                ControllerMode::Discovery | ControllerMode::Connecting => {
                     self.led.pattern(&self.mode, time);
                 },
+
+                ControllerMode::ServerMeditation => {
+                    const CYCLE_LENGTH: u32 = 1024; // Full cycle length
+                    let time_wrapped = time % CYCLE_LENGTH;
+                
+                    // Sine wave calculations
+                    let cyan = (((2.0 * std::f64::consts::PI * time_wrapped as f64 / CYCLE_LENGTH as f64).sin() * 0.5 + 0.5) * 255.0) as u8;
+                    let magenta = (((2.0 * std::f64::consts::PI * (time_wrapped as f64 + CYCLE_LENGTH as f64 / 3.0) / CYCLE_LENGTH as f64).sin() * 0.5 + 0.5) * 255.0) as u8;
+                    let yellow = (((2.0 * std::f64::consts::PI * (time_wrapped as f64 + 2.0 * CYCLE_LENGTH as f64 / 3.0) / CYCLE_LENGTH as f64).sin() * 0.5 + 0.5) * 255.0) as u8;
+                
+                    // Calculate combined RGB intensity
+                    let combined_intensity = (cyan as u16 + magenta as u16 + yellow as u16) / 3;
+                
+                    // Desired total intensity (tweak as needed)
+                    let desired_intensity: u16 = 120; // Example value
+                
+                    // Calculate and adjust white intensity
+                    let white_intensity = if combined_intensity > desired_intensity {
+                        0
+                    } else {
+                        (desired_intensity - combined_intensity) as u8
+                    };
+                
+                    // Set the RGBW values
+                    self.led.set_rgbw(
+                        cyan,
+                        magenta,
+                        yellow,
+                        white_intensity,
+                    );
+                }
 
                 ControllerMode::Game(game_mode) => {
                     match game_mode {
                         GameMode::Idle => {},
                         GameMode::LastOneStanding => {
-                            let try_recv = self.rx.try_recv();
-                            if !try_recv.is_err() {
-                                self.mode = try_recv.unwrap();
-                            }
-
-                            let try_msg_recv = self.msg_rx.try_recv();
-                            if !try_msg_recv.is_err() {
-                                match try_msg_recv.unwrap() {
-                                    Message::Request(req) => {
-                                        match req {
-                                            Request::SetBrightness(brightness) => {
-                                                let mut num = brightness.parse::<f32>().unwrap();
-
-                                                if num > 1.0 {
-                                                    num = 1.0;
-                                                } else if num < 0.0 {
-                                                    num = 0.0;
-                                                }
-
-                                                self.led.config.intensity = num;
-                                            },
-                                            _ => {},
-                                        }
-                                    },
-                                    Message::Notice(notice) => {
-                                        match notice {
-                                            Notice::Accelerometer(delta) => {
-                                                current_delta = delta;
-                                            },
-                                            _ => {},
-                                        }
-                                    },
-                                    _ => {},
-                                }
-                            }
-
                             let mut factor;
                             if current_delta > delta_threshold {
                                 factor = 1.0;

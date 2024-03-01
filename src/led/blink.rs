@@ -5,17 +5,26 @@
 
 use crate::controller::ControllerMode;
 
+pub struct BlinkCode {
+
+}
+
 
 /// A single color for all diodes, or an array individually addressing the LEDs.
+#[derive(Debug)]
 pub enum LedMode {
     /// All of the LEDs are set to the same color.
     Simultaneous((u8, u8, u8, u8)),
 
     /// The color of each LED is set individually.
     Individual([(u8, u8, u8, u8); 7]),
+
+    /// The color of the LEDs is controlled by messages sent over MPSC.
+    DirectDrive,
 }
 
 /// The color values of the LED at a certain point in time, addressed simultaneously or individually.
+#[derive(Debug)]
 pub struct LedState {
     /// The duration of this state change in milliseconds.
     pub duration: u32,
@@ -28,10 +37,11 @@ impl LedState {
     ///
     /// For simultanous mode, this will just return the color, and if mistakenly
     /// used in individual mode, the first color in the buffer will be used.
-    pub fn get_single_color(&self) -> (u8, u8, u8, u8) {
-        match self.mode {
-            LedMode::Simultaneous(color) => color,
+    pub fn get_single_color(&self, time: u32) -> (u8, u8, u8, u8) {
+        match &self.mode {
+            LedMode::Simultaneous(color) => *color,
             LedMode::Individual(colors) => colors[0],
+            LedMode::DirectDrive => (0, 0, 0, 0),
         }
     }
 
@@ -40,9 +50,10 @@ impl LedState {
     /// This will simply return the buffer in individual mode, or create a buffer
     /// with seven identical colors from the color of the simultaneous mode.
     pub fn get_color_array(&self) -> [(u8, u8, u8, u8); 7] {
-        match self.mode {
-            LedMode::Simultaneous(color) => [color; 7],
-            LedMode::Individual(colors) => colors,
+        match &self.mode {
+            LedMode::Simultaneous(color) => [*color; 7],
+            LedMode::Individual(colors) => *colors,
+            LedMode::DirectDrive => [(0, 0, 0, 0); 7],
         }
     }
 
@@ -64,6 +75,7 @@ impl LedState {
 }
 
 /// A sequence of color changes.
+#[derive(Debug)]
 pub struct LedTimeline {
     states: Vec<LedState>,
 }
@@ -77,7 +89,7 @@ impl LedTimeline {
         for pattern in &self.states {
             elapsed += pattern.duration;
             if time_in_cycle < elapsed {
-                return pattern.get_single_color();
+                return pattern.get_single_color(time);
             }
         }
 
@@ -123,16 +135,7 @@ impl From<&ControllerMode> for LedTimeline {
                     LedState::all(850, (0, 0, 0, 0)),
                 ])
             },
-            ControllerMode::ServerMeditation => {
-                let mut states = vec![];
-
-                for t in 0 .. 400 {
-                    let color = get_smooth_rainbow_color(t as f32 / 200.0);
-                    states.push(LedState::all(2, (color.0, color.1, color.2, 0)));
-                }
-
-                Self::new(states)
-            },
+            ControllerMode::ServerMeditation => Self::new(vec![]),
 
             _ => {
                 Self::new(vec![

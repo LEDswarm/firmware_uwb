@@ -19,6 +19,8 @@ pub struct LedConfig {
 /// This struct abstracts the interface to the `ws2812_esp32_rmt_driver` to provide a method API
 pub struct Led {
     driver: LedPixelEsp32Rmt::<RGBW8, LedPixelColorGrbw32>,
+    last_controller_mode: Option<ControllerMode>,
+    timeline: LedTimeline,
     pub config: LedConfig,
 }
 
@@ -26,13 +28,24 @@ impl Led {
     pub fn new(config: LedConfig) -> Self {
         Self {
             driver: LedPixelEsp32Rmt::<RGBW8, LedPixelColorGrbw32>::new(0, config.pin).unwrap(),
+            last_controller_mode: None,
+            timeline: LedTimeline::new(vec![
+                LedState::all(1000, (0, 255, 255, 0)),
+                LedState::all(1000, (0, 0, 0, 0)),
+            ]),
             config,
         }
     }
 
     pub fn pattern(&mut self, state: &ControllerMode, time: u32) {
-        let timeline = LedTimeline::from(state);
-        let color = timeline.get_current_color(time);
+        // Regenerate timeline only when the controller mode changes
+        if self.last_controller_mode != Some(state.clone()) {
+            println!("Regenerating timeline");
+            self.last_controller_mode = Some(state.clone());
+            self.timeline = LedTimeline::from(state);
+        }
+
+        let color = self.timeline.get_current_color(time);
         self.set_rgbw(color.0, color.1, color.2, color.3);
     }
 
