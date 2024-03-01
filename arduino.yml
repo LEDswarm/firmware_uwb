@@ -1,0 +1,10 @@
+arduino_home: $HOME/Library/Arduino15
+external_libraries_home: $HOME/Documents/Arduino/libraries
+core_version: 1.8.6
+variant: eightanaloginputs
+avr_gcc_version: 7.3.0-atmel3.6.1-arduino7
+arduino_libraries:
+  - Wire
+external_libraries:
+  - DW3000
+
