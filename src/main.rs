@@ -7,7 +7,7 @@
 use colored::*;
 use esp_idf_hal::gpio::{InterruptType, PinDriver};
 use esp_idf_hal::spi::config::{Mode, Phase, Polarity};
-use esp_idf_hal::spi::{config, SpiDeviceDriver, SpiDriver, SpiDriverConfig, SPI2};
+use esp_idf_hal::spi::{config, SpiDeviceDriver, SpiDriver, SpiDriverConfig, SPI2, SPI3};
 use esp_idf_svc::hal::prelude::*;
 use esp_idf_svc::netif::{EspNetif, NetifStack};
 use esp_idf_svc::wifi::{WifiDriver, EspWifi, AsyncWifi};
@@ -24,6 +24,7 @@ use dw3000_ng::{
     DW3000,
     block,
 };
+use dw3000_ng::hl::SendTime;
 
 use ledswarm_protocol::Message;
 
@@ -75,7 +76,7 @@ fn main() -> anyhow::Result<()> {
     let sys_loop = EspSystemEventLoop::take().unwrap();
     let nvs = EspDefaultNvsPartition::take().unwrap();
 
-
+/*
     println!("## {}  Initializing Wi-Fi ...", "[LEDswarm]".yellow().bold());
     let wifi_driver = WifiDriver::new(peripherals.modem, sys_loop.clone(), Some(nvs.clone())).unwrap();
 
@@ -99,7 +100,7 @@ fn main() -> anyhow::Result<()> {
     server::create_endpoints(msg_tx.clone())?;
     println!("## {}  Starting controller IMU ...", "[LEDswarm]".yellow().bold());
     imu::start(accel_tx, peripherals.i2c0, peripherals.pins.gpio21, peripherals.pins.gpio22)?;
-
+*/
     println!("\n\n--------->   Initializing SPI\n\n");
 
     //
@@ -107,18 +108,18 @@ fn main() -> anyhow::Result<()> {
     //
 
 
-    let spi = peripherals.spi2;
-/*
-    let serial_out = peripherals.pins.gpio19; // MISO
-    let serial_in = peripherals.pins.gpio23; // MOSI
+    let spi = peripherals.spi3;
+
+    let serial_out = peripherals.pins.gpio23; // MISO
+    let serial_in = peripherals.pins.gpio19; // MOSI
     let sclk = peripherals.pins.gpio18;
     let cs = peripherals.pins.gpio4; // CS
-*/
+/*
     let serial_out = peripherals.pins.gpio12; // MISO
     let serial_in = peripherals.pins.gpio13;  // MOSI
     let sclk = peripherals.pins.gpio14;
     let cs = peripherals.pins.gpio15; // CS
-
+*/
     let config = config::Config::new()
         .baudrate(5.MHz().into())
         .data_mode(Mode {
@@ -126,7 +127,7 @@ fn main() -> anyhow::Result<()> {
             phase: Phase::CaptureOnFirstTransition,
         });
 
-    let driver = SpiDriver::new::<SPI2>(
+    let driver = SpiDriver::new::<SPI3>(
         spi,
         sclk,
         serial_out,
@@ -151,7 +152,7 @@ fn main() -> anyhow::Result<()> {
 
     println!("--------->   Waiting for DW3000 to start up ... (5s)");
     // Time needed for DW3000 to start up (transition from INIT_RC to IDLE_RC, or could wait for SPIRDY event)
-    //delay.delay_ms(5000);
+    delay.delay_ms(5000);
 
     let dw3000_config = Config {
         channel: UwbChannel::Channel5,
@@ -183,7 +184,29 @@ fn main() -> anyhow::Result<()> {
     match dw_res {
         Ok(mut uwb) => {
             println!("--------->   🎉  DWM3000 initialized");
+/*
+            loop {
+                // Initiate Sending
+                let mut sending = uwb
+                    .send(&[0, 1, 2, 3, 4], SendTime::Now, Config::default())
+                    .expect("Failed configure transmitter");
+                        
+                // Waiting for the frame to be sent
+                let result = match block!(sending.s_wait()) {
+                    Ok(t) => t,
+                    Err(_e) => {
+                        println!("Error");
+                        uwb = sending.finish_sending().expect("Failed to finish sending");
+                        continue // Start a new loop iteration
+                    }
+                };
+        
+                println!("Last frame sent at {}", result.value());
+                uwb = sending.finish_sending().expect("Failed to finish sending");
 
+                delay.delay_ms(500);
+            }
+*/
             loop {
                 // Initiate Reception
                 let mut buffer = [0; 1023];
@@ -191,7 +214,7 @@ fn main() -> anyhow::Result<()> {
                     .receive(Config::default())
                     .expect("Failed configure receiver.");
         
-                // Waiting for an incomming frame
+                // Waiting for an incoming frame
                 let result = match block!(receiving.r_wait(&mut buffer)) {
                     Ok(t) => t,
                     Err(e) => {
@@ -203,7 +226,10 @@ fn main() -> anyhow::Result<()> {
         
                 println!("Received '{:?}' at {:?}", result.frame.payload(), result.rx_time.value());
                 uwb = receiving.finish_receiving().expect("Failed to finish receiving");
+
+                delay.delay_ms(10);
             }
+
         },
         Err(e) => println!("--------->  DW3000 config error: {:?}", e),
     }
