@@ -139,6 +139,12 @@ fn main() -> anyhow::Result<()> {
     
     println!("\n\n--------->   SPI initialized\n\n");
 
+    // Set up DW3000 IRQ interrupt line
+    let mut dw3000_irq = PinDriver::input(peripherals.pins.gpio34).unwrap();
+    dw3000_irq.set_interrupt_type(InterruptType::PosEdge).unwrap();
+    unsafe { dw3000_irq.subscribe(gpio_int_callback).unwrap() }
+    dw3000_irq.enable_interrupt().unwrap();
+
 
     // Time needed for DW3000 to start up (transition from INIT_RC to IDLE_RC, or could wait for SPIRDY event)
     // std::thread::sleep(Duration::from_millis(200));
@@ -167,10 +173,8 @@ fn main() -> anyhow::Result<()> {
         sfd_timeout: 129,
     };
 
-    let dw3000_default_config = Config::default();
-
     println!("--------->   Trying to create DW3000 instance ...");
-    let mut dw3000 = DW3000::new(spi_device)
+    let dw3000 = DW3000::new(spi_device)
 		.init()
 		.expect("Failed DWM3000 init.");
 
@@ -207,6 +211,8 @@ fn main() -> anyhow::Result<()> {
                 delay.delay_ms(500);
             }
 */
+            uwb.enable_rx_interrupts().expect("Failed to set up RX interrupts on the DW3000");
+
             loop {
                 // Initiate Reception
                 let mut buffer = [0; 1023];
@@ -215,19 +221,28 @@ fn main() -> anyhow::Result<()> {
                     .expect("Failed configure receiver.");
         
                 // Waiting for an incoming frame
-                let result = match block!(receiving.r_wait(&mut buffer)) {
-                    Ok(t) => t,
-                    Err(e) => {
-                        println!("UWB Error: {:?}", e);
-                        uwb = receiving.finish_receiving().expect("Failed to finish receiving");
-                        continue // Start a new loop iteration
-                    }
-                };
-        
-                println!("Received '{:?}' at {:?}", result.frame.payload(), result.rx_time.value());
-                uwb = receiving.finish_receiving().expect("Failed to finish receiving");
+                if WAS_INTERRUPT_TRIGGERED.load(Ordering::Relaxed) {
+                    // Reset global flag
+                    WAS_INTERRUPT_TRIGGERED.store(false, Ordering::Relaxed);
+                    dw3000_irq.enable_interrupt().unwrap();
+                    let result;
 
-                delay.delay_ms(10);
+                    loop {
+                        if let Ok(t) = receiving.r_wait(&mut buffer) {
+                            result = t;
+                            break;
+                        } else {
+                            delay.delay_ms(1);
+                        }
+                    }
+
+                    println!("Received '{:?}' at {:?}", result.frame.payload(), result.rx_time.value());
+                } else {
+                    delay.delay_ms(1);
+                }
+
+                // This must always execute at the end.
+                uwb = receiving.finish_receiving().expect("Failed to finish receiving");
             }
 
         },
