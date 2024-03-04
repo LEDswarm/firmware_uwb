@@ -4,10 +4,10 @@ This is a special firmware for the Makerfabs ESP32 UWB board with an integrated 
 
 # Getting Started
 
-Make sure you have cargo-espflash installed, then simply run the following command to build and flash to a connected ESP32 device:
+Make sure you have cargo-espflash installed, then simply run `make` to build and flash to a connected ESP32 device:
 
 ```
-    cargo espflash flash
+    make
 ```
 
 ## Prerequisites
