@@ -1,0 +1,26 @@
+name: Territory
+triggers:
+  - type: jolt
+    description: >
+      Detect if the change in acceleration (jolt) exceeds a specified threshold.
+    actions:
+      - 'evaluate_team_color_change'
+    conditions:
+      - type: threshold
+        operator: '>'
+        value: 0.3
+actions:
+  - name: evaluate_team_color_change
+  description: >
+      Identify the closest controller using UWB ranging and change our own LED color to
+      match that one, but only if it is within a specified maximum distance.
+  conditions:
+    - type: distance
+      operator: '<'
+      value: 1.2
+      unit: meters
+      onSuccess:
+        # Tell the controller firmware to change LED color to the one of the closest controller.
+        method: change_color
+        parameters:
+          target: closest
