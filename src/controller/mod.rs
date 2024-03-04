@@ -1,20 +1,18 @@
 
-use std::rc::Rc;
 use std::sync::mpsc;
 use std::time::{Instant, Duration};
+use std::sync::Arc;
 
-use esp_idf_hal::modem::Modem;
-use esp_idf_svc::timer::EspTaskTimerService;
-use esp_idf_svc::eventloop::EspSystemEventLoop;
-use esp_idf_svc::nvs::EspDefaultNvsPartition;
-use esp_idf_svc::sys::EspError;
-use esp_idf_svc::wifi::{EspWifi, AsyncWifi};
+use esp_idf_svc::{
+    sys::EspError,
+    wifi::{EspWifi, AsyncWifi},
+};
 
 use crate::led::{Led, LedConfig};
 use crate::network::wifi::WifiController;
-use crate::moving_average::{MovingAverage, self};
+use crate::event_bus::EventBus;
 
-use ledswarm_protocol::{Message, Request, Notice};
+use ledswarm_protocol::{InternalMessage, UwbMessage, UwbPacket};
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum ControllerMode {
@@ -55,23 +53,43 @@ pub enum GameMode {
 
 pub struct Controller<'a> {
     pub mode: ControllerMode,
+    pub sensors: Sensors,
+    pub event_bus: Arc<EventBus>,
     rx: mpsc::Receiver<ControllerMode>,
     tx: mpsc::Sender<ControllerMode>,
-    msg_rx: mpsc::Receiver<Message>,
+    msg_rx: mpsc::Receiver<InternalMessage>,
+    uwb_out_tx: mpsc::Sender<UwbPacket>,
     pub start_time: Instant,
     wifi: Option<WifiController<'a>>,
     led:  Led,
 }
 
+pub struct Sensors {
+    /// The current average jolt (change of acceleration) experienced by the controller enclosure,
+    /// a moving average of recent vector sums of the X, Y and Z readings from the accelerometer.
+    pub accelerometer_jolt: f32,
+}
+
+impl Sensors {
+    pub fn new() -> Self {
+        Self {
+            accelerometer_jolt: 0.0,
+        }
+    }
+}
+
 impl<'a> Controller<'a> {
-    pub fn new(msg_rx: mpsc::Receiver<Message>) -> Self {
+    pub fn new(msg_rx: mpsc::Receiver<InternalMessage>, uwb_out_tx: mpsc::Sender<UwbPacket>) -> Self {
         let (tx, rx): (mpsc::Sender<ControllerMode>, mpsc::Receiver<ControllerMode>) = mpsc::channel();
 
         Self {
             mode:       ControllerMode::Discovery,
+            sensors:    Sensors::new(),
+            event_bus:  Arc::new(EventBus::new()),
             rx,
             tx,
             msg_rx,
+            uwb_out_tx,
             start_time: Instant::now(),
             wifi:       None,
             led:        Led::new(LedConfig { pin: 0, intensity: 0.3 }),
@@ -93,6 +111,27 @@ impl<'a> Controller<'a> {
         Ok(())
     }
 
+    fn handle_internal_msg(&mut self, message: InternalMessage) {
+        match message {
+            InternalMessage::Packet(packet) => {
+                match packet.message {
+                    UwbMessage::SetBrightness(brightness) => {
+                        // Set the brightness of the LED and make sure it's within the valid range
+                        self.led.config.intensity = brightness.clamp(0.0, 1.0);
+                    },
+
+                    _ => {},
+                }
+            },
+
+            InternalMessage::AccelerometerDelta(delta) => {
+                self.sensors.accelerometer_jolt = delta;
+            },
+
+            _ => {},
+        }
+    }
+
     pub fn start_event_loop(&mut self) -> Result<(), EspError> {
         let mut time = 0u32;
         let delta_threshold = 0.4;
@@ -103,46 +142,22 @@ impl<'a> Controller<'a> {
         self.mode = ControllerMode::Game(GameMode::LastOneStanding);
 
         loop {
-            let try_recv = self.rx.try_recv();
-            if !try_recv.is_err() {
-                self.mode = try_recv.unwrap();
+            // Check for new channel messages
+            if let Ok(mode) = self.rx.try_recv() {
+                self.mode = mode;
+            }
+            if let Ok(msg) = self.msg_rx.try_recv() {
+                self.handle_internal_msg(msg);
             }
 
-            let try_msg_recv = self.msg_rx.try_recv();
-            if !try_msg_recv.is_err() {
-                match try_msg_recv.unwrap() {
-                    Message::Request(req) => {
-                        match req {
-                            Request::SetBrightness(brightness) => {
-                                let mut num = brightness.parse::<f32>().unwrap();
-
-                                if num > 1.0 {
-                                    num = 1.0;
-                                } else if num < 0.0 {
-                                    num = 0.0;
-                                }
-
-                                self.led.config.intensity = num;
-                            },
-                            _ => {},
-                        }
-                    },
-                    Message::Notice(notice) => {
-                        match notice {
-                            Notice::Accelerometer(delta) => {
-                                current_delta = delta;
-                            },
-                            _ => {},
-                        }
-                    },
-                    _ => {},
-                }
-            }
-
-            // Choose how to
             match &self.mode {
                 ControllerMode::Discovery | ControllerMode::Connecting => {
-                    self.led.pattern(&self.mode, time);
+                    self.led.set_rgbw(
+                        0,
+                        180,
+                        255,
+                        0,
+                    );
                 },
 
                 ControllerMode::ServerMeditation => {
@@ -150,12 +165,12 @@ impl<'a> Controller<'a> {
                     let time_wrapped = time % CYCLE_LENGTH;
                 
                     // Sine wave calculations
-                    let cyan = (((2.0 * std::f64::consts::PI * time_wrapped as f64 / CYCLE_LENGTH as f64).sin() * 0.5 + 0.5) * 255.0) as u8;
-                    let magenta = (((2.0 * std::f64::consts::PI * (time_wrapped as f64 + CYCLE_LENGTH as f64 / 3.0) / CYCLE_LENGTH as f64).sin() * 0.5 + 0.5) * 255.0) as u8;
-                    let yellow = (((2.0 * std::f64::consts::PI * (time_wrapped as f64 + 2.0 * CYCLE_LENGTH as f64 / 3.0) / CYCLE_LENGTH as f64).sin() * 0.5 + 0.5) * 255.0) as u8;
+                    let r = (((2.0 * std::f64::consts::PI * time_wrapped as f64 / CYCLE_LENGTH as f64).sin() * 0.5 + 0.5) * 255.0) as u8;
+                    let g = (((2.0 * std::f64::consts::PI * (time_wrapped as f64 + CYCLE_LENGTH as f64 / 3.0) / CYCLE_LENGTH as f64).sin() * 0.5 + 0.5) * 255.0) as u8;
+                    let b = (((2.0 * std::f64::consts::PI * (time_wrapped as f64 + 2.0 * CYCLE_LENGTH as f64 / 3.0) / CYCLE_LENGTH as f64).sin() * 0.5 + 0.5) * 255.0) as u8;
                 
                     // Calculate combined RGB intensity
-                    let combined_intensity = (cyan as u16 + magenta as u16 + yellow as u16) / 3;
+                    let combined_intensity = (r as u16 + g as u16 + b as u16) / 3;
                 
                     // Desired total intensity (tweak as needed)
                     let desired_intensity: u16 = 120; // Example value
@@ -169,9 +184,9 @@ impl<'a> Controller<'a> {
                 
                     // Set the RGBW values
                     self.led.set_rgbw(
-                        cyan,
-                        magenta,
-                        yellow,
+                        r,
+                        g,
+                        b,
                         white_intensity,
                     );
                 }
