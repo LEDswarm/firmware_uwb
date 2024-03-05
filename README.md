@@ -1,6 +1,7 @@
-# firmware-uwb-xtensa-idf
+![breadboard prototype illustration](https://ghoust.s3.fr-par.scw.cloud/swarm_prototype_banner4.png)
 
-This is a special firmware for the Makerfabs ESP32 UWB board with an integrated radio.
+This repository contains the main firmware for LEDswarm controllers, although currently only on the Makerfabs DW3000 board.
+More board support will come soon.
 
 # Getting Started
 
