@@ -81,15 +81,15 @@ pub struct LedTimeline {
 }
 
 impl LedTimeline {
-    pub fn get_current_color(&self, time: u32) -> (u8, u8, u8, u8) {
+    pub fn get_current_color(&self, time: u16) -> (u8, u8, u8, u8) {
         let total_duration: u32 = self.states.iter().map(|pattern| pattern.duration).sum();
-        let time_in_cycle = time % total_duration;
+        let time_in_cycle = time as u32 % total_duration;
 
         let mut elapsed = 0;
         for pattern in &self.states {
             elapsed += pattern.duration;
             if time_in_cycle < elapsed {
-                return pattern.get_single_color(time);
+                return pattern.get_single_color(time as u32);
             }
         }
 

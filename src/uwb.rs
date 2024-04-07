@@ -1,19 +1,20 @@
 use dw3000_ng::hl::SendTime;
 use esp_idf_svc::hal::gpio::{Gpio4, Gpio18, Gpio19, Gpio23, Gpio27, Gpio34};
 use esp_idf_hal::sys::EspError;
-use esp_idf_hal::gpio::{Input, InterruptType, Output, PinDriver};
+use esp_idf_hal::gpio::{Input, InterruptType, PinDriver};
 use esp_idf_hal::spi::config::{Mode, Phase, Polarity};
-use esp_idf_hal::spi::{config, SpiDeviceDriver, SpiDriver, SpiDriverConfig, SPI2, SPI3};
+use esp_idf_hal::spi::{config, SpiDeviceDriver, SpiDriver, SpiDriverConfig, SPI3};
 use std::sync::atomic::{AtomicBool, Ordering};
 use esp_idf_svc::hal::prelude::*;
-use std::sync::mpsc::{Receiver, Sender};
+use std::sync::mpsc::{Receiver, SyncSender};
 use dw3000_ng::{
     configs::{BitRate, Config, PreambleLength, PulseRepetitionFrequency, SfdSequence, StsLen, StsMode, UwbChannel},
     DW3000,
-    block,
+    // block,
 };
+use colored::*;
 
-use ledswarm_protocol::{packet, InternalMessage, Message, UwbMessage, UwbPacket};
+use ledswarm_protocol::Frame;
 
 static WAS_INTERRUPT_TRIGGERED: AtomicBool = AtomicBool::new(false);
 
@@ -50,8 +51,8 @@ fn reset_dw3000(rst: Gpio27) -> Result<(), EspError> {
 
 /// Initialize the onboard ultra-wideband radio.
 pub fn start(
-    tx: Sender<InternalMessage>,
-    packet_rx: Receiver<UwbPacket>,
+    tx: SyncSender<Frame>,
+    packet_rx: Receiver<Frame>,
     spi:        SPI3,
     serial_out: Gpio23,
     serial_in:  Gpio19,
@@ -104,52 +105,36 @@ pub fn start(
     match dw_res {
         Ok(mut uwb) => {
             println!("--------->   🎉  DWM3000 initialized");
-            /*
-                let packet = UwbPacket {
-                    sender_id: 0,
-                    timestamp: "now".to_string(),
-                    ranging_bytes: [0, 0, 0, 0],
-                    message:   UwbMessage::JoinRequest,
-                };
-            */
-/*
-            loop {
-                let packet = UwbPacket {
-                    sender_id: 0,
-                    timestamp: "now".to_string(),
-                    ranging_bytes: [0, 0, 0, 0],
-                    message:   UwbMessage::JoinRequest,
-                };
-                let packet_bytes = Vec::from(packet);
-                // Initiate Sending
-                let mut sending = uwb
-                    .send(&packet_bytes[0 .. packet_bytes.len() - 4], SendTime::Now, Config::default())
-                    .expect("Failed configure transmitter");
-                        
-                // Waiting for the frame to be sent
-                let result = match block!(sending.s_wait()) {
-                    Ok(t) => t,
-                    Err(_e) => {
-                        println!("Error");
-                        uwb = sending.finish_sending().expect("Failed to finish sending");
-                        continue // Start a new loop iteration
-                    }
-                };
-        
-                println!("Last frame sent at {}", result.value());
-                uwb = sending.finish_sending().expect("Failed to finish sending");
-
-                delay.delay_ms(500);
-            }
-*/
 
             uwb.enable_rx_interrupts().expect("Failed to set up RX interrupts on the DW3000");
 
             loop {
                 // See if there any packets to be sent
                 if let Ok(packet) = packet_rx.try_recv() {
-                    println!("Sending packet: {:?}", packet);
+                    println!("## {}  Sending packet", "[uwb]".bright_blue().bold());
+                    let packet_bytes = Vec::from(packet);
+                    // Initiate Sending
+                    let mut sending = uwb
+                        .send(&packet_bytes[0 .. packet_bytes.len() - 4], SendTime::Now, Config::default())
+                        .expect("Failed configure transmitter");
+
+                    let send_result;
+
+                    // Wait to send the frame, in a non-blocking way
+                    loop {
+                        if let Ok(t) = sending.s_wait() {
+                            send_result = t;
+                            break;
+                        } else {
+                            delay.delay_ms(1);
+                        }
+                    }
+            
+                    println!("Last frame sent at {}", send_result.value());
+                    uwb = sending.finish_sending().expect("Failed to finish sending");
+                    println!("## {}  Sent packet", "[uwb]".bright_blue().bold());
                 }
+
                 // Initiate Reception
                 let mut buffer = [0; 1023];
                 let mut receiving = uwb
@@ -175,12 +160,13 @@ pub fn start(
 
                     let payload = result.frame.payload();
 
-                    println!("Got UWB packet");
-
                     if let Some(bytes) = payload {
-                        let packet = UwbPacket::try_from(bytes.to_vec()).unwrap();
-                        println!("Received '{:?}' at {:?}", &packet, result.rx_time.value());
-                        tx.send(InternalMessage::Packet(packet)).unwrap();
+                        if let Ok(frame) = Frame::try_from(bytes.to_vec()) {
+                            println!("## {}  Received packet: {:?}", "[uwb]".bright_blue().bold(), frame);
+                            tx.send(frame).unwrap();
+                        } else {
+                            println!("Failed to parse UWB packet, skipping");
+                        }
                     }
                 } else {
                     delay.delay_ms(1);

@@ -1,6 +1,6 @@
 
 use std::sync::mpsc;
-use std::time::{Instant, Duration};
+use std::time::{Instant, /*Duration*/};
 use std::sync::Arc;
 
 use esp_idf_svc::{
@@ -12,7 +12,11 @@ use crate::led::{Led, LedConfig};
 use crate::network::wifi::WifiController;
 use crate::event_bus::EventBus;
 
-use ledswarm_protocol::{InternalMessage, UwbMessage, UwbPacket};
+use ledswarm_protocol::{InternalMessage, Frame, FramePayload, ClientMessage, UwbMessage, UwbPacket, GameMode};
+#[derive(Debug, Clone, PartialEq)]
+pub struct RemoteController {
+    pub id: usize,
+}
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum ControllerMode {
@@ -27,28 +31,33 @@ pub enum ControllerMode {
     Connecting,
     /// The controller is currently connected to an UWB mesh as a non-master node.
     Client {
-        /// The iterative ID of the controller in the mesh, but always 0 if this controller happens to be the master.
+        /// The iterative ID of the controller in the mesh, starting from 1 since 0 is the master.
         id: usize,
+        game: Option<GameMode>,
     },
     /// The controller has launched a Wi-Fi hotspot and is waiting for other controllers to join the session.
     ServerMeditation,
     /// The controller is currently connected to an UWB mesh as the master node.
-    Master,
+    Master {
+        /// Contains references to all the controllers in the mesh so the master can keep track of them.
+        controllers: Vec<RemoteController>,
+        /// An incrementing counter to assign unique IDs to new controllers joining the mesh.
+        id_counter: usize,
+        /// Keeps track of the current game state if a game is running.
+        game: Option<GameState>,
+    },
     /// The controller is currently in a game session.
     Game(GameMode),
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub enum GameMode {
-    /// The controller is currently not in a game session.
-    Idle,
-    /// Keep your own light green while pushing (softly) on the other light rods to make them red. Being
-    /// green or red determines if you're still in the round or not. The last remaining player wins.
-    LastOneStanding,
-    /// All players are divided into two or more groups and each group is assigned a color. To take over territory, get
-    /// your own controller within range of another, try to push it and it may take on the color of yours. The game is
-    /// finished and a winner may be declared when all controllers have the same color.
-    Territory,
+pub enum GameState {
+    LastOneStanding {
+        /// The IDs of all controllers currently active in the round.
+        active_controller_ids: Vec<usize>,
+        /// The IDs of all controllers that have been eliminated from the round.
+        exited_controller_ids: Vec<usize>,
+    },
 }
 
 pub struct Controller<'a> {
@@ -57,8 +66,8 @@ pub struct Controller<'a> {
     pub event_bus: Arc<EventBus>,
     rx: mpsc::Receiver<ControllerMode>,
     tx: mpsc::Sender<ControllerMode>,
-    msg_rx: mpsc::Receiver<InternalMessage>,
-    uwb_out_tx: mpsc::Sender<UwbPacket>,
+    msg_rx: mpsc::Receiver<Frame>,
+    uwb_out_tx: mpsc::SyncSender<Frame>,
     pub start_time: Instant,
     wifi: Option<WifiController<'a>>,
     led:  Led,
@@ -79,7 +88,7 @@ impl Sensors {
 }
 
 impl<'a> Controller<'a> {
-    pub fn new(msg_rx: mpsc::Receiver<InternalMessage>, uwb_out_tx: mpsc::Sender<UwbPacket>) -> Self {
+    pub fn new(msg_rx: mpsc::Receiver<Frame>, uwb_out_tx: mpsc::SyncSender<Frame>) -> Self {
         let (tx, rx): (mpsc::Sender<ControllerMode>, mpsc::Receiver<ControllerMode>) = mpsc::channel();
 
         Self {
@@ -111,58 +120,165 @@ impl<'a> Controller<'a> {
         Ok(())
     }
 
-    fn handle_internal_msg(&mut self, message: InternalMessage) {
-        match message {
-            InternalMessage::Packet(packet) => {
-                match packet.message {
-                    UwbMessage::SetBrightness(brightness) => {
-                        // Set the brightness of the LED and make sure it's within the valid range
-                        self.led.config.intensity = brightness.clamp(0.0, 1.0);
-                    },
-
-                    _ => {},
-                }
-            },
-
-            InternalMessage::AccelerometerDelta(delta) => {
-                self.sensors.accelerometer_jolt = delta;
-            },
-
-            _ => {},
-        }
-    }
-
     pub fn start_event_loop(&mut self) -> Result<(), EspError> {
-        let mut time = 0u32;
+        let mut time = 0u16;
         let delta_threshold = 0.4;
         let mut current_delta = 0.0;
 
         let mut stay_red = false;
 
-        self.mode = ControllerMode::Game(GameMode::LastOneStanding);
+        self.mode = ControllerMode::Discovery;
+
+        let delay = esp_idf_hal::delay::Delay::new_default();
+
+        /*self.uwb_out_tx.send(UwbPacket {
+            sender_id: u16::MAX,
+            target_id: Some(0),
+            timestamp: "now".to_string(),
+            ranging_bytes: [0, 0, 0, 0],
+            message:   UwbMessage::JoinRequest,
+            lifetime: 1,
+        }).unwrap();*/
+
+        self.uwb_out_tx.send(Frame::join_request(time)).unwrap();
 
         loop {
             // Check for new channel messages
             if let Ok(mode) = self.rx.try_recv() {
+                println!("Mode change: {:?}", mode);
                 self.mode = mode;
             }
-            if let Ok(msg) = self.msg_rx.try_recv() {
-                self.handle_internal_msg(msg);
+            if let Ok(frame) = self.msg_rx.try_recv() {
+                //self.handle_internal_msg(message);
+
+                // This needs to be handled here, using handle_internal_msg will cause the stack to overflow.
+                match frame.payload {
+                    FramePayload::ClientMessage(ClientMessage::SetBrightness(brightness)) => {
+                        // Set the brightness of the LED and make sure it's within the valid range
+                        self.led.config.intensity = brightness.clamp(0.0, 1.0);
+
+                        match self.mode {
+                            ControllerMode::Master { .. } => {
+                                println!("Broadcasting brightness to all clients");
+                                self.uwb_out_tx.send(frame).unwrap();
+                            },
+                            _ => {},
+                        }
+                    },
+
+                    FramePayload::InternalMessage(InternalMessage::AccelerometerJoltDelta(delta)) => self.sensors.accelerometer_jolt = delta,
+
+                    _ => {},
+                }
+                /*match message {
+                    InternalMessage::Frame(frame) => {
+                        println!("Frame: {:?}", frame);
+                    },
+                    InternalMessage::Packet(mut packet) => {
+                        match packet.message {
+                            UwbMessage::SetBrightness(brightness) => {
+                                // Set the brightness of the LED and make sure it's within the valid range
+                                self.led.config.intensity = brightness.clamp(0.0, 1.0);
+
+                                match self.mode {
+                                    ControllerMode::Master { .. } => {
+                                        println!("Broadcasting brightness to all clients");
+                                        self.uwb_out_tx.send(packet).unwrap();
+                                    },
+                                    _ => {},
+                                }
+/*
+                                if packet.lifetime > 0 {
+                                    packet.lifetime -= 1;
+                                    println!("Broadcasting brightness to all clients");
+                                    // Broadcast the new brightness to all clients
+                                    self.uwb_out_tx.send(packet).unwrap();
+                                }
+*/
+                            },
+        
+                            UwbMessage::JoinRequest => {
+                                println!("Join Request");
+                                match self.mode {
+                                    ControllerMode::ServerMeditation => {
+                                        let controllers = vec![RemoteController { id: 1 }];
+                                        self.mode = ControllerMode::Master {
+                                            controllers,
+                                            id_counter: 2,
+                                            game: None,
+                                        };
+                                        let welcome_packet = UwbPacket {
+                                            sender_id: 0,
+                                            target_id: Some(1),
+                                            ranging_bytes: [0, 0, 0, 0],
+                                            message: UwbMessage::Welcome {
+                                                controller_id: 1,
+                                            },
+                                            lifetime: 1,
+                                            timestamp: String::from("now"),
+                                        };
+                                        self.uwb_out_tx.send(welcome_packet).unwrap();
+        
+                                    },
+        
+                                    _ => {},
+                                }
+                            },
+        
+                            UwbMessage::Welcome { controller_id } => {
+                                self.mode = ControllerMode::Client {
+                                    id: controller_id as usize,
+                                    game: None,
+                                };
+                            },
+        
+                            _ => {},
+                        }
+                    },
+        
+                    InternalMessage::AccelerometerDelta(delta) => {
+                        self.sensors.accelerometer_jolt = delta;
+                    },
+        
+                    _ => {},
+                }*/
             }
 
             match &self.mode {
                 ControllerMode::Discovery | ControllerMode::Connecting => {
-                    self.led.set_rgbw(
+                    println!("Discovery | Connecting");
+                    /*self.led.set_rgbw(
                         0,
                         180,
+                        255,
+                        0,
+                    );*/
+                    self.led.pattern(&self.mode, time);
+                },
+
+                ControllerMode::Master { .. } => {
+                    // Pink
+                    self.led.set_rgbw(
+                        0,
+                        30,
                         255,
                         0,
                     );
                 },
 
+                ControllerMode::Client { .. } => {
+                    // Orange
+                    self.led.set_rgbw(
+                        250,
+                        80,
+                        0,
+                        0,
+                    );
+                },
+
                 ControllerMode::ServerMeditation => {
-                    const CYCLE_LENGTH: u32 = 1024; // Full cycle length
-                    let time_wrapped = time % CYCLE_LENGTH;
+                    const CYCLE_LENGTH: u32 = 3072; // Full cycle length
+                    let time_wrapped = time as u32 % CYCLE_LENGTH;
                 
                     // Sine wave calculations
                     let r = (((2.0 * std::f64::consts::PI * time_wrapped as f64 / CYCLE_LENGTH as f64).sin() * 0.5 + 0.5) * 255.0) as u8;
@@ -193,8 +309,11 @@ impl<'a> Controller<'a> {
 
                 ControllerMode::Game(game_mode) => {
                     match game_mode {
-                        GameMode::Idle => {},
+                        GameMode::Idle => {
+                            println!("GameIdle");
+                        },
                         GameMode::LastOneStanding => {
+                            println!("GameLastOneStanding");
                             let mut factor;
                             if current_delta > delta_threshold {
                                 factor = 1.0;
@@ -222,12 +341,12 @@ impl<'a> Controller<'a> {
                 _ => {},
             }
 
-            if time < u32::MAX {
+            if time < u16::MAX {
                 time += 1;
             } else {
                 time = 0;
             }
-            std::thread::sleep(Duration::from_millis(1));
+            delay.delay_us(50);
         }
 
         Ok(())

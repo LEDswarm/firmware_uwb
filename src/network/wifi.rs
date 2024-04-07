@@ -3,9 +3,9 @@ use esp_idf_svc::{
         prelude::*,
         i2c::*,
     },
-    wifi::{BlockingWifi, AsyncWifi, EspWifi, WifiDriver, AuthMethod, ClientConfiguration, AccessPointConfiguration, Configuration},
+    wifi::{AsyncWifi, EspWifi, WifiDriver, AuthMethod, ClientConfiguration, AccessPointConfiguration, Configuration},
     eventloop::EspSystemEventLoop,
-    nvs::EspDefaultNvsPartition, timer::EspTaskTimerService, sys
+    nvs::EspDefaultNvsPartition,
 };
 
 use esp_idf_svc::netif::NetifConfiguration;
@@ -13,11 +13,9 @@ use esp_idf_svc::netif::NetifStack;
 use esp_idf_svc::netif::EspNetif;
 
 use esp_idf_svc::ipv4::{
-    ClientConfiguration as IpClientConfiguration, ClientSettings as IpClientSettings,
     Configuration as IpConfiguration, Mask, Subnet,
 };
 use esp_idf_svc::sys::EspError;
-use esp_idf_hal::modem::Modem;
 
 use embedded_svc::ipv4::RouterConfiguration;
 use embedded_svc::ipv4::Ipv4Addr;
@@ -72,14 +70,15 @@ impl<'a> WifiController<'a> {
         println!("Starting Wi-Fi in client mode");
         self.wifi.start().await?;
 
-        self.tx.send(ControllerMode::Client { id: 1 }).unwrap();
+        self.tx.send(ControllerMode::Client {
+            id: 1,
+            game: None,
+        }).unwrap();
 
         Ok(())
     }
 
     pub async fn create_network(&mut self) -> Result<(), EspError> {
-        let netmask = GATEWAY_NETMASK.unwrap_or("24");
-
         println!("--> Setting access point configuration");
         self.wifi.set_configuration(&Configuration::AccessPoint(AccessPointConfiguration {
             ssid: "LEDswarm".into(),

@@ -1,4 +1,3 @@
-use esp_idf_svc::timer::EspTimerService;
 use smart_leds_trait::{SmartLedsWrite, White};
 use ws2812_esp32_rmt_driver::driver::color::LedPixelColorGrbw32;
 use ws2812_esp32_rmt_driver::{LedPixelEsp32Rmt, RGBW8};
@@ -37,7 +36,7 @@ impl Led {
         }
     }
 
-    pub fn pattern(&mut self, state: &ControllerMode, time: u32) {
+    pub fn pattern(&mut self, state: &ControllerMode, time: u16) {
         // Regenerate timeline only when the controller mode changes
         if self.last_controller_mode != Some(state.clone()) {
             println!("Regenerating timeline");

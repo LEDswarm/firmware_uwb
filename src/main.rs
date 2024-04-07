@@ -16,7 +16,7 @@ use esp_idf_svc::{
 use esp_idf_svc::timer::EspTaskTimerService;
 use serde::{Deserialize, Serialize};
 
-use ledswarm_protocol::{InternalMessage, UwbPacket};
+use ledswarm_protocol::Frame;
 
 //pub mod display;
 pub mod configuration;
@@ -32,9 +32,7 @@ pub mod event_bus;
 
 use controller::Controller;
 
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc;
-use std::time::Duration;
 
 pub const STACK_SIZE: usize = 10240;
 
@@ -70,8 +68,8 @@ fn main() -> anyhow::Result<()> {
     ).unwrap();
 
     let wifi = AsyncWifi::wrap(wifi, sys_loop.clone(), timer.clone()).unwrap();
-    let (msg_tx, msg_rx): (mpsc::Sender<InternalMessage>, mpsc::Receiver<InternalMessage>) = mpsc::channel();
-    let (uwb_out_tx, uwb_out_rx): (mpsc::Sender<UwbPacket>, mpsc::Receiver<UwbPacket>)         = mpsc::channel();
+    let (msg_tx, msg_rx): (mpsc::SyncSender<Frame>, mpsc::Receiver<Frame>)         = mpsc::sync_channel(512);
+    let (uwb_out_tx, uwb_out_rx): (mpsc::SyncSender<Frame>, mpsc::Receiver<Frame>) = mpsc::sync_channel(512);
 
     println!("## {}  Initializing controller ...", "[LEDswarm]".yellow().bold());
     let mut controller = Controller::new(msg_rx, uwb_out_tx);

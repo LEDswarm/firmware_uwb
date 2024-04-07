@@ -1,5 +1,4 @@
 use async_channel::{unbounded, Sender, Receiver};
-use futures::executor::block_on;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 

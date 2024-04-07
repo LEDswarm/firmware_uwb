@@ -1,7 +1,4 @@
-// Set up espidf and link Arduino SDK along with DW3000 library into our build.
-
-use std::path::PathBuf;
-use serde::Deserialize;
+// Initialize `esp-idf`.
 
 fn main() {
     embuild::espidf::sysenv::output();

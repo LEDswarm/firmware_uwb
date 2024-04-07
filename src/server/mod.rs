@@ -3,10 +3,12 @@ use embedded_svc::{http::Method, ws::FrameType};
 use esp_idf_hal::sys::{ESP_ERR_INVALID_SIZE, EspError};
 use esp_idf_svc::http::server::EspHttpServer;
 use embedded_svc::http::Headers;
-use ledswarm_protocol::{Message, Request};
+use ledswarm_protocol::{UwbMessage, Frame, ClientMessage, FramePayload};
 use embedded_svc::io::{Read, Write};
 
 use crate::RootDocument;
+
+pub mod handlers;
 
 pub const STACK_SIZE: usize = 10240;
 // Max payload length
@@ -14,7 +16,7 @@ const MAX_LEN: usize = 256;
 
 
 /// Initialize HTTP server and WebSocket endpoints.
-pub fn create_endpoints(msg_tx: mpsc::Sender<Message>) -> anyhow::Result<()> {
+pub fn create_endpoints(msg_tx: mpsc::SyncSender<Frame>) -> anyhow::Result<()> {
     let server_configuration = esp_idf_svc::http::server::Configuration {
         stack_size: 10240,
         ..Default::default()
@@ -43,7 +45,7 @@ pub fn create_endpoints(msg_tx: mpsc::Sender<Message>) -> anyhow::Result<()> {
         req.read_exact(&mut buf)?;
         let mut resp = req.into_ok_response()?;
 
-        if let Ok(form) = serde_json::from_slice::<Message>(&buf) {
+        if let Ok(form) = serde_json::from_slice::<UwbMessage>(&buf) {
             /*write!(
                 resp,
                 "Hello, {}-year-old {} from {}!",
@@ -62,7 +64,8 @@ pub fn create_endpoints(msg_tx: mpsc::Sender<Message>) -> anyhow::Result<()> {
             if ws.is_new() {
                 // sessions.insert(ws.session(), GuessingGame::new((rand() % 100) + 1));
                 println!("New WebSocket session");
-
+/*              
+                --- TODO: do we need a welcome message?
                 let msg = Message::Request(Request::SetBrightness("0.5".to_string()));
                 let json_string = serde_json::to_string(&msg).unwrap();
 
@@ -70,6 +73,7 @@ pub fn create_endpoints(msg_tx: mpsc::Sender<Message>) -> anyhow::Result<()> {
                     FrameType::Text(false),
                     json_string.as_bytes(),
                 )?;
+*/
                 return Ok(());
             } else if ws.is_closed() {
                 // sessions.remove(&ws.session());
@@ -102,10 +106,22 @@ pub fn create_endpoints(msg_tx: mpsc::Sender<Message>) -> anyhow::Result<()> {
             };
 
             // Remove null terminator
-            match serde_json::from_str::<Message>(&user_string[0 .. user_string.len() - 1]) {
-                Ok(msg) => {
+            match serde_json::from_str::<Frame>(&user_string[0 .. user_string.len() - 1]) {
+                Ok(frame) => {
                     //println!("-->   Msg:   {:?}", msg);
-                    msg_tx.send(msg).unwrap();
+                    match frame.payload {
+                        FramePayload::ClientMessage(ClientMessage::SetBrightness(..)) => {
+/*
+                            if brightness > 1.0 {
+                                brightness = 1.0;
+                            } else if brightness < 0.0 {
+                                brightness = 0.0;
+                            }
+*/
+                            msg_tx.send(frame).unwrap();
+                        },
+                        _ => {},
+                    }
                 },
                 Err(e)  => println!("Failed to parse JSON:\n\n{}\n\n{}", e, user_string),
             }
