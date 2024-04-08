@@ -12,8 +12,9 @@ use ledswarm_protocol::{Frame, InternalMessage};
 
 use crate::moving_average;
 
-pub fn start(tx: SyncSender<Frame>, i2c: I2C0, sda: Gpio21, scl: Gpio22) -> Result<(), EspError> {
+pub fn start(tx: SyncSender<InternalMessage>, i2c: I2C0, sda: Gpio21, scl: Gpio22) -> Result<(), EspError> {
     std::thread::spawn(move || {
+        let delay = esp_idf_hal::delay::Delay::new_default();
         let config = I2cConfig::new().baudrate(100.kHz().into());
         let i2c = I2cDriver::new(i2c, sda, scl, &config).unwrap();
         
@@ -23,18 +24,18 @@ pub fn start(tx: SyncSender<Frame>, i2c: I2C0, sda: Gpio21, scl: Gpio22) -> Resu
         let mut last_delta = 0.0;
 
         loop {
+            // println!("Accelerometer loop");
             let reading = accelerometer.accel_norm().unwrap();
             moving_average.add(reading);
             let delta = moving_average.get_average_delta();
             let delta_difference = (delta - last_delta).abs();
             if delta_difference > 0.02 {
                 // The receiving end in the controller MUST handle these events or the buffer overflow will cause an out-of-memory error after about 15 seconds.
-                tx.send(
-                    Frame::new().internal_message(InternalMessage::AccelerometerJoltDelta(delta))
-                ).unwrap();
+                // println!("Sending accelerometer jolt delta: {:?}", delta);
+                tx.send(InternalMessage::AccelerometerJoltDelta(delta)).unwrap();
                 last_delta = delta;
             }
-            std::thread::sleep(Duration::from_millis(2));
+            delay.delay_ms(2);
         }
     });
 
