@@ -16,7 +16,7 @@ use esp_idf_svc::{
 use esp_idf_svc::timer::EspTaskTimerService;
 use serde::{Deserialize, Serialize};
 
-use ledswarm_protocol::Frame;
+use ledswarm_protocol::{Frame, InternalMessage};
 
 //pub mod display;
 pub mod configuration;
@@ -68,8 +68,8 @@ fn main() -> anyhow::Result<()> {
     ).unwrap();
 
     let wifi = AsyncWifi::wrap(wifi, sys_loop.clone(), timer.clone()).unwrap();
-    let (msg_tx, msg_rx): (mpsc::SyncSender<Frame>, mpsc::Receiver<Frame>)         = mpsc::sync_channel(512);
-    let (uwb_out_tx, uwb_out_rx): (mpsc::SyncSender<Frame>, mpsc::Receiver<Frame>) = mpsc::sync_channel(512);
+    let (msg_tx, msg_rx): (mpsc::SyncSender<InternalMessage>, mpsc::Receiver<InternalMessage>) = mpsc::sync_channel(512);
+    let (uwb_out_tx, uwb_out_rx): (mpsc::SyncSender<Frame>, mpsc::Receiver<Frame>)                     = mpsc::sync_channel(512);
 
     println!("## {}  Initializing controller ...", "[LEDswarm]".yellow().bold());
     let mut controller = Controller::new(msg_rx, uwb_out_tx);
@@ -77,7 +77,7 @@ fn main() -> anyhow::Result<()> {
     futures::executor::block_on(controller.init_wifi(wifi))?;
 
     println!("## {}  Creating server endpoints ...", "[LEDswarm]".yellow().bold());
-    server::create_endpoints(msg_tx.clone())?;
+    //server::create_endpoints(msg_tx.clone())?;
     println!("## {}  Starting controller IMU ...", "[LEDswarm]".yellow().bold());
 
     /*
@@ -94,21 +94,28 @@ fn main() -> anyhow::Result<()> {
     let accel_tx = msg_tx.clone();
     imu::start(accel_tx, peripherals.i2c0, peripherals.pins.gpio21, peripherals.pins.gpio22)?;
 
-    std::thread::spawn(move || {
-        controller.start_event_loop().expect("Failed to start controller event loop");
-    });
+    println!("## {}  Launched IMU thread", "[LEDswarm]".yellow().bold());
 
-    uwb::start(
-        msg_tx.clone(),
-        uwb_out_rx,
-        spi,
-        serial_out,
-        serial_in,
-        sclk,
-        cs,
-        peripherals.pins.gpio34,
-        peripherals.pins.gpio27,
-    ).expect("Failed to initialize UWB");
+    // Use 8K stack size for UWB thread to prevent overflow
+    std::thread::Builder::new().stack_size(8192).spawn(move || {
+        uwb::start(
+            msg_tx.clone(),
+            uwb_out_rx,
+            spi,
+            serial_out,
+            serial_in,
+            sclk,
+            cs,
+            peripherals.pins.gpio34,
+            peripherals.pins.gpio27,
+        ).expect("Failed to initialize UWB");
+    })?;
+
+    println!("## {}  Launched UWB thread", "[LEDswarm]".yellow().bold());
+
+    println!("## {}  Starting controller event loop", "[LEDswarm]".yellow().bold());
+
+    controller.start_event_loop().expect("Failed to start controller event loop"); 
 
     Ok(())
 }
