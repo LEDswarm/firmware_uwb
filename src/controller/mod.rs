@@ -3,6 +3,7 @@ use std::sync::mpsc;
 use std::time::{Instant, /*Duration*/};
 use std::sync::Arc;
 
+use colored::Colorize;
 use esp_idf_svc::{
     sys::EspError,
     wifi::{EspWifi, AsyncWifi},
@@ -66,7 +67,7 @@ pub struct Controller<'a> {
     pub event_bus: Arc<EventBus>,
     rx: mpsc::Receiver<ControllerMode>,
     tx: mpsc::Sender<ControllerMode>,
-    msg_rx: mpsc::Receiver<Frame>,
+    msg_rx: mpsc::Receiver<InternalMessage>,
     uwb_out_tx: mpsc::SyncSender<Frame>,
     pub start_time: Instant,
     wifi: Option<WifiController<'a>>,
@@ -88,7 +89,7 @@ impl Sensors {
 }
 
 impl<'a> Controller<'a> {
-    pub fn new(msg_rx: mpsc::Receiver<Frame>, uwb_out_tx: mpsc::SyncSender<Frame>) -> Self {
+    pub fn new(msg_rx: mpsc::Receiver<InternalMessage>, uwb_out_tx: mpsc::SyncSender<Frame>) -> Self {
         let (tx, rx): (mpsc::Sender<ControllerMode>, mpsc::Receiver<ControllerMode>) = mpsc::channel();
 
         Self {
@@ -109,6 +110,7 @@ impl<'a> Controller<'a> {
         &mut self,
         wifi: AsyncWifi<EspWifi<'a>>,
     ) -> Result<(), EspError> {
+        println!("Starting controller Wi-Fi");
         let mut wifi_controller = WifiController::new(
             wifi,
             self.tx.clone(),
@@ -121,6 +123,7 @@ impl<'a> Controller<'a> {
     }
 
     pub fn start_event_loop(&mut self) -> Result<(), EspError> {
+        println!("## {}  Initializing controller loop", "[Controller]".bright_blue().bold());
         let mut time = 0u16;
         let delta_threshold = 0.4;
         let mut current_delta = 0.0;
@@ -128,6 +131,8 @@ impl<'a> Controller<'a> {
         let mut stay_red = false;
 
         self.mode = ControllerMode::Discovery;
+
+        println!("## {}  Controller Init to Discovery Mode", "[Controller]".bright_blue().bold());
 
         let delay = esp_idf_hal::delay::Delay::new_default();
 
@@ -141,19 +146,21 @@ impl<'a> Controller<'a> {
         }).unwrap();*/
 
         self.uwb_out_tx.send(Frame::join_request(time)).unwrap();
+        println!("Sent UWB join request to see if there is a master");
 
         loop {
+            //println!("Event loop iteration {}", time);
             // Check for new channel messages
             if let Ok(mode) = self.rx.try_recv() {
                 println!("Mode change: {:?}", mode);
                 self.mode = mode;
             }
-            if let Ok(frame) = self.msg_rx.try_recv() {
+            if let Ok(internal_msg) = self.msg_rx.try_recv() {
                 //self.handle_internal_msg(message);
 
                 // This needs to be handled here, using handle_internal_msg will cause the stack to overflow.
-                match frame.payload {
-                    FramePayload::ClientMessage(ClientMessage::SetBrightness(brightness)) => {
+                match internal_msg {
+                    /*FramePayload::ClientMessage(ClientMessage::SetBrightness(brightness)) => {
                         // Set the brightness of the LED and make sure it's within the valid range
                         self.led.config.intensity = brightness.clamp(0.0, 1.0);
 
@@ -164,11 +171,12 @@ impl<'a> Controller<'a> {
                             },
                             _ => {},
                         }
-                    },
+                    },*/
 
-                    FramePayload::InternalMessage(InternalMessage::AccelerometerJoltDelta(delta)) => self.sensors.accelerometer_jolt = delta,
+                    InternalMessage::AccelerometerJoltDelta(delta) => self.sensors.accelerometer_jolt = delta,
+                    InternalMessage::Frame(frame) => println!("UWB Frame: {:?}", frame),
 
-                    _ => {},
+                    _ => println!("Unhandled internal message: {:?}", internal_msg),
                 }
                 /*match message {
                     InternalMessage::Frame(frame) => {
@@ -246,7 +254,7 @@ impl<'a> Controller<'a> {
 
             match &self.mode {
                 ControllerMode::Discovery | ControllerMode::Connecting => {
-                    println!("Discovery | Connecting");
+                    // println!("Mode: Discovery | Connecting");
                     /*self.led.set_rgbw(
                         0,
                         180,
@@ -257,6 +265,7 @@ impl<'a> Controller<'a> {
                 },
 
                 ControllerMode::Master { .. } => {
+                    // println!("Mode: Master");
                     // Pink
                     self.led.set_rgbw(
                         0,
@@ -267,6 +276,7 @@ impl<'a> Controller<'a> {
                 },
 
                 ControllerMode::Client { .. } => {
+                    // println!("Mode: Client");
                     // Orange
                     self.led.set_rgbw(
                         250,
@@ -277,7 +287,8 @@ impl<'a> Controller<'a> {
                 },
 
                 ControllerMode::ServerMeditation => {
-                    const CYCLE_LENGTH: u32 = 3072; // Full cycle length
+                    // println!("Mode: ServerMeditation (t {})", time);
+                    const CYCLE_LENGTH: u32 = 4096; // Full cycle length
                     let time_wrapped = time as u32 % CYCLE_LENGTH;
                 
                     // Sine wave calculations
@@ -337,8 +348,6 @@ impl<'a> Controller<'a> {
                         },
                     }
                 },
-                // Do not use LED here, causes reset
-                _ => {},
             }
 
             if time < u16::MAX {
