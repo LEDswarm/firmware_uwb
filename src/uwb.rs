@@ -14,7 +14,7 @@ use dw3000_ng::{
 };
 use colored::*;
 
-use ledswarm_protocol::Frame;
+use ledswarm_protocol::{Frame, InternalMessage};
 
 static WAS_INTERRUPT_TRIGGERED: AtomicBool = AtomicBool::new(false);
 
@@ -34,24 +34,23 @@ fn initialize_dw3000_interrupts(irq: Gpio34) -> PinDriver<'static, Gpio34, Input
 
 fn reset_dw3000(rst: Gpio27) -> Result<(), EspError> {
     let delay = esp_idf_hal::delay::Delay::new_default();
-    println!("--------->   DW3000 Reset");
 
     let mut rst_n = PinDriver::output(rst)?;
     rst_n.set_low().unwrap();
     delay.delay_ms(200);
     rst_n.set_high().unwrap();
 
-    println!("--------->   Waiting for DW3000 to start up ... (5s)");
+    println!("--------->   Waiting for DW3000 to start up ... (2s)");
 
     // Time needed for DW3000 to start up (transition from INIT_RC to IDLE_RC, or could wait for SPIRDY event)
-    delay.delay_ms(5000);
+    delay.delay_ms(2000);
 
     Ok(())
 }
 
 /// Initialize the onboard ultra-wideband radio.
 pub fn start(
-    tx: SyncSender<Frame>,
+    tx: SyncSender<InternalMessage>,
     packet_rx: Receiver<Frame>,
     spi:        SPI3,
     serial_out: Gpio23,
@@ -82,7 +81,7 @@ pub fn start(
     println!("\n\n--------->   SPI initialized\n\n");
 
     let mut dw3000_irq = initialize_dw3000_interrupts(irq);
-    reset_dw3000(rst);
+    let rst_result = reset_dw3000(rst);
 
     let dw3000_config = Config {
         channel: UwbChannel::Channel5,
@@ -163,7 +162,7 @@ pub fn start(
                     if let Some(bytes) = payload {
                         if let Ok(frame) = Frame::try_from(bytes.to_vec()) {
                             println!("## {}  Received packet: {:?}", "[uwb]".bright_blue().bold(), frame);
-                            tx.send(frame).unwrap();
+                            tx.send(InternalMessage::Frame(Box::new(frame))).unwrap();
                         } else {
                             println!("Failed to parse UWB packet, skipping");
                         }
