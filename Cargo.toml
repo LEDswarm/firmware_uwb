@@ -44,6 +44,7 @@ colored = "2.1.0"
 dw3000-ng = { path = "../dw3000-ng", features = ["std"] }
 async-channel = "2.2.0"
 uuid = { version = "1.7.0", features = ["v4"] }
+nanoid = "0.4.0"
 
 [build-dependencies]
 embuild = "0.31.3"
