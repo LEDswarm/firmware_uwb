@@ -1,3 +1,4 @@
+# GitHub Workflow to deploy to Pages
 name: Docs
 on:
   push:
