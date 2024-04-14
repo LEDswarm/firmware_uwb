@@ -68,17 +68,17 @@ fn main() -> anyhow::Result<()> {
     ).unwrap();
 
     let wifi = AsyncWifi::wrap(wifi, sys_loop.clone(), timer.clone()).unwrap();
-    let (msg_tx, msg_rx): (mpsc::SyncSender<InternalMessage>, mpsc::Receiver<InternalMessage>) = mpsc::sync_channel(512);
-    let (uwb_out_tx, uwb_out_rx): (mpsc::SyncSender<Frame>, mpsc::Receiver<Frame>)                     = mpsc::sync_channel(512);
+    let (msg_tx, msg_rx): (mpsc::SyncSender<InternalMessage>, mpsc::Receiver<InternalMessage>)   = mpsc::sync_channel(512);
+    let (uwb_out_tx, uwb_out_rx): (mpsc::SyncSender<Frame>, mpsc::Receiver<Frame>)                       = mpsc::sync_channel(512);
 
-    println!("## {}  Initializing controller ...", "[LEDswarm]".yellow().bold());
+    println!("{}  Initializing controller ...", "[LEDswarm]".yellow().bold());
     let mut controller = Controller::new(msg_rx, uwb_out_tx);
-    println!("## {}  Starting controller Wi-Fi ...", "[LEDswarm]".yellow().bold());
+    println!("{}  Starting controller Wi-Fi ...", "[LEDswarm]".yellow().bold());
     futures::executor::block_on(controller.init_wifi(wifi))?;
 
-    println!("## {}  Creating server endpoints ...", "[LEDswarm]".yellow().bold());
-    //server::create_endpoints(msg_tx.clone())?;
-    println!("## {}  Starting controller IMU ...", "[LEDswarm]".yellow().bold());
+    println!("{}  Creating server endpoints ...", "[LEDswarm]".yellow().bold());
+    server::create_endpoints(msg_tx.clone())?;
+    println!("{}  Starting controller IMU ...", "[LEDswarm]".yellow().bold());
 
     /*
         UWB
@@ -94,7 +94,7 @@ fn main() -> anyhow::Result<()> {
     let accel_tx = msg_tx.clone();
     imu::start(accel_tx, peripherals.i2c0, peripherals.pins.gpio21, peripherals.pins.gpio22)?;
 
-    println!("## {}  Launched IMU thread", "[LEDswarm]".yellow().bold());
+    println!("{}  Launched IMU thread", "[LEDswarm]".yellow().bold());
 
     // Use 8K stack size for UWB thread to prevent overflow
     std::thread::Builder::new().stack_size(8192).spawn(move || {
@@ -111,9 +111,9 @@ fn main() -> anyhow::Result<()> {
         ).expect("Failed to initialize UWB");
     })?;
 
-    println!("## {}  Launched UWB thread", "[LEDswarm]".yellow().bold());
+    println!("{}  Launched UWB thread", "[LEDswarm]".yellow().bold());
 
-    println!("## {}  Starting controller event loop", "[LEDswarm]".yellow().bold());
+    println!("{}  Starting controller event loop", "[LEDswarm]".yellow().bold());
 
     controller.start_event_loop().expect("Failed to start controller event loop"); 
 
