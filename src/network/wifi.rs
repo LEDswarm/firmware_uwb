@@ -1,7 +1,6 @@
 use esp_idf_svc::{
     hal::{
         prelude::*,
-        i2c::*,
     },
     wifi::{AsyncWifi, EspWifi, WifiDriver, AuthMethod, ClientConfiguration, AccessPointConfiguration, Configuration},
     eventloop::EspSystemEventLoop,
@@ -70,11 +69,6 @@ impl<'a> WifiController<'a> {
         println!("Starting Wi-Fi in client mode");
         self.wifi.start().await?;
 
-        self.tx.send(ControllerMode::Client {
-            id: 1,
-            game: None,
-        }).unwrap();
-
         Ok(())
     }
 
@@ -119,10 +113,6 @@ impl<'a> WifiController<'a> {
 
         if networks.iter().any(|network| network.ssid == "LEDswarm") {
             println!("--> Found LEDswarm network");
-            match self.tx.send(ControllerMode::Connecting) {
-                Ok(_) => println!("--> Set ControllerMode::Connecting"),
-                Err(e) => println!("--> Failed to send ControllerMode::Connecting: {}", e),
-            }
             self.join_network("LEDswarm").await?;
         } else {
             println!("--> Creating new LEDswarm network");
