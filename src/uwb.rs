@@ -78,7 +78,7 @@ pub fn start(
     )?;
 
     let spi_device = SpiDeviceDriver::new(driver, Some(cs), &config)?;
-    println!("\n\n--------->   SPI initialized\n\n");
+    // println!("\n\n--------->   SPI initialized\n\n");
 
     let mut dw3000_irq = initialize_dw3000_interrupts(irq);
     let rst_result = reset_dw3000(rst);
@@ -111,7 +111,7 @@ pub fn start(
                 // See if there any packets to be sent
                 if let Ok(packet) = packet_rx.try_recv() {
                     println!("## {}  Sending packet", "[uwb]".bright_blue().bold());
-                    let packet_bytes = Vec::from(packet);
+                    let packet_bytes = Vec::from(packet.clone());
                     // Initiate Sending
                     let mut sending = uwb
                         .send(&packet_bytes[0 .. packet_bytes.len() - 4], SendTime::Now, Config::default())
@@ -131,7 +131,7 @@ pub fn start(
             
                     println!("Last frame sent at {}", send_result.value());
                     uwb = sending.finish_sending().expect("Failed to finish sending");
-                    println!("## {}  Sent packet", "[uwb]".bright_blue().bold());
+                    println!("## {}  Sent packet {:#?}", "[uwb]".bright_blue().bold(), packet);
                 }
 
                 // Initiate Reception
