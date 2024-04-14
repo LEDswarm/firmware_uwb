@@ -76,6 +76,8 @@ pub fn create_endpoints(msg_tx: mpsc::SyncSender<InternalMessage>) -> anyhow::Re
                 return Ok(());
             };
 
+            println!("Example client message: {:?}", serde_json::to_string(&ClientMessage::StartRound("last_one_standing".to_string())).unwrap());
+
             // Remove null terminator
             match serde_json::from_str::<ClientMessage>(&user_string[0 .. user_string.len() - 1]) {
                 Ok(msg) => msg_tx.send(InternalMessage::ClientMessage(msg)).unwrap(),

@@ -131,7 +131,7 @@ pub fn start(
             
                     println!("Last frame sent at {}", send_result.value());
                     uwb = sending.finish_sending().expect("Failed to finish sending");
-                    println!("## {}  Sent packet {:#?}", "[uwb]".bright_blue().bold(), packet);
+                    // println!("## {}  Sent packet {:#?}", "[uwb]".bright_blue().bold(), packet);
                 }
 
                 // Initiate Reception
@@ -161,7 +161,7 @@ pub fn start(
 
                     if let Some(bytes) = payload {
                         if let Ok(frame) = Frame::try_from(bytes.to_vec()) {
-                            println!("## {}  Received packet: {:?}", "[uwb]".bright_blue().bold(), frame);
+                            // println!("## {}  Received packet: {:?}", "[uwb]".bright_blue().bold(), frame);
                             tx.send(InternalMessage::Frame(Box::new(frame))).unwrap();
                         } else {
                             println!("Failed to parse UWB packet, skipping");

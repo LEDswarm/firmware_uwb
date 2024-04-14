@@ -149,7 +149,7 @@ impl<'a> Controller<'a> {
                 match self.mode {
                     ControllerMode::Master { .. } => {
                         println!("Broadcasting brightness to all clients");
-                        // self.uwb_out_tx.send(Frame::client_message(ClientMessage::SetBrightness(brightness))).unwrap();
+                        self.uwb_out_tx.send(Frame::new().client_message(ClientMessage::SetBrightness(brightness))).unwrap();
                     },
                     _ => {},
                 }
@@ -203,6 +203,9 @@ impl<'a> Controller<'a> {
                     },
                 }
             },
+
+            FramePayload::ClientMessage(client_msg) => self.handle_client_msg(client_msg),
+
             _ => println!("Unhandled UWB frame: {:?}", frame),
         }
     }
