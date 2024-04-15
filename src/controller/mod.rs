@@ -46,7 +46,7 @@ pub enum ControllerMode {
     Client {
         /// The iterative ID of the controller in the mesh, starting from 1 since 0 is the master.
         id: usize,
-        game: Option<GameMode>,
+        game: Option<ClientGameState>,
     },
     /// The controller has launched a Wi-Fi hotspot and is waiting for other controllers to join the session.
     ServerMeditation,
@@ -68,8 +68,16 @@ pub enum GameState {
     LastOneStanding {
         /// The IDs of all controllers currently active in the round.
         active_controller_ids: Vec<usize>,
-        /// The IDs of all controllers that have been eliminated from the round.
+        /// The IDs of the controllers that have been eliminated from the round.
         exited_controller_ids: Vec<usize>,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum ClientGameState {
+    LastOneStanding {
+        /// Whether the client is currently active in the round.
+        is_active: bool,
     },
 }
 
@@ -143,15 +151,38 @@ impl<'a> Controller<'a> {
     fn handle_client_msg(&mut self, msg: ClientMessage) {
         match msg {
             ClientMessage::SetBrightness(brightness) => {
+                println!("Handling SetBrightness message");
                 // Set the brightness of the LED and make sure it's within the valid range
                 self.led.config.intensity = brightness.clamp(0.0, 1.0);
 
                 match self.mode {
                     ControllerMode::Master { .. } => {
-                        println!("Broadcasting brightness to all clients");
+                        println!("Sending brightness change over UWB out tx");
+                        // Broadcast brightness to all clients
                         self.uwb_out_tx.send(Frame::new().client_message(ClientMessage::SetBrightness(brightness))).unwrap();
                     },
                     _ => {},
+                }
+            },
+            
+            // TODO: Hardcoded to Last One Standing for now
+            ClientMessage::StartRound(game_identifier) => {
+                match &mut self.mode {
+                    ControllerMode::Master { game, .. } => {
+                        *game = Some(GameState::LastOneStanding {
+                            active_controller_ids: self.connected_controllers.iter().map(|c| c.id as usize).collect(),
+                            exited_controller_ids: vec![],
+                        });
+
+                        // Broadcast round start to all clients
+                        self.uwb_out_tx.send(Frame::new().client_message(ClientMessage::StartRound(game_identifier))).unwrap();
+                    },
+                    ControllerMode::Client { game, .. } => {
+                        *game = Some(ClientGameState::LastOneStanding {
+                            is_active: true,
+                        });
+                    },
+                    _ => println!("Implement StartRound handling for non-master modes"),
                 }
             },
 
@@ -173,11 +204,13 @@ impl<'a> Controller<'a> {
             FramePayload::ControllerMessage(controller_msg) => {
                 match controller_msg {
                     ControllerMessage::JoinRequest => {
-                        println!("Received UWB join request from controller at time {}", time);
+                        println!("Received UWB join request from controller at time {} (Mode {:?})", time, self.mode);
 
                         let mut assigned_id = 65535;
 
                         if self.mode == ControllerMode::ServerMeditation {
+                            // This is the first controller joining the master, set the assigned ID to 1 and the ID counter to 2.
+                            println!("Switching to Master mode");
                             assigned_id = 1;
                             self.mode = ControllerMode::Master {
                                 controllers: vec![RemoteController::new(assigned_id)],
@@ -185,6 +218,8 @@ impl<'a> Controller<'a> {
                                 game: None,
                             };
                         } else if let ControllerMode::Master { controllers, id_counter, game } = &mut self.mode {
+                            // Use the incremental nature of the counter to assign new IDs to joining controllers.
+                            println!("Adding new controller to mesh");
                             *id_counter += 1;
                             assigned_id = *id_counter;
                             controllers.push(RemoteController::new(assigned_id));
@@ -223,26 +258,70 @@ impl<'a> Controller<'a> {
                 self.led.pattern(&self.mode, time);
             },
 
-            ControllerMode::Master { .. } => {
-                // println!("Mode: Master");
-                // Pink
-                self.led.set_rgbw(
-                    0,
-                    30,
-                    255,
-                    0,
-                );
+            ControllerMode::Master { controllers, id_counter, game } => {
+                // Run the game mode if one is currently active, otherwise display the static blue-orange pairing indicator.
+                if let Some(_state) = game {
+                    // This is for now a hard-coded variant of Last One Standing controller behavior.
+                    let mut factor;
+
+                    if current_delta > delta_threshold {
+                        factor = 1.0;
+                    } else {
+                        factor = current_delta / delta_threshold;
+                    }
+
+                    if current_delta >= delta_threshold {
+                        stay_red = true;
+                    };
+
+                    if stay_red {
+                        factor = 1.0;
+                    };
+
+                    let red = (255.0 * factor) as u8;
+                    self.led.set_rgbw(red, 255 - red, 0, 0);
+                } else {
+                    // Static blue indicating master mode with at least one paired controller.
+                    self.led.set_rgbw(
+                        0,
+                        30,
+                        255,
+                        0,
+                    );
+                }
             },
 
-            ControllerMode::Client { .. } => {
-                // println!("Mode: Client");
-                // Orange
-                self.led.set_rgbw(
-                    250,
-                    80,
-                    0,
-                    0,
-                );
+            ControllerMode::Client { id, game } => {
+                // Run the game mode if one is currently active, otherwise display the static blue-orange pairing indicator.
+                if let Some(_state) = game {
+                    // This is for now a hard-coded variant of Last One Standing controller behavior.
+                    let mut factor;
+
+                    if current_delta > delta_threshold {
+                        factor = 1.0;
+                    } else {
+                        factor = current_delta / delta_threshold;
+                    }
+
+                    if current_delta >= delta_threshold {
+                        stay_red = true;
+                    };
+
+                    if stay_red {
+                        factor = 1.0;
+                    };
+
+                    let red = (255.0 * factor) as u8;
+                    self.led.set_rgbw(red, 255 - red, 0, 0);
+                } else {
+                    // Orange
+                    self.led.set_rgbw(
+                        250,
+                        80,
+                        0,
+                        0,
+                    );
+                }
             },
 
             ControllerMode::ServerMeditation => {
@@ -328,7 +407,11 @@ impl<'a> Controller<'a> {
         println!("Sent UWB join request to see if there is a master");
 
         loop {
-            //println!("Event loop iteration {}", time);
+            // Send tick message for time synchronization. This should keep the UWB connection alive.
+            // self.uwb_out_tx.send(Frame::tick(time)).unwrap();
+
+            //println!("Loop iteration {}", time);
+
             // Check for new channel messages
             if let Ok(mode) = self.rx.try_recv() {
                 println!("Mode change: {:?}", mode);
@@ -345,8 +428,11 @@ impl<'a> Controller<'a> {
             } else {
                 time = 0;
             }
-            delay.delay_us(50);
+
+            delay.delay_ms(1);
         }
+
+        println!("Loop done");
 
         Ok(())
     }
