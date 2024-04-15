@@ -1,3 +1,5 @@
+//! Peripheral controller for HTTP communication and WebSocket streams.
+
 use std::sync::mpsc;
 use embedded_svc::{http::Method, ws::FrameType};
 use esp_idf_hal::sys::{ESP_ERR_INVALID_SIZE, EspError};
@@ -14,7 +16,7 @@ const MAX_LEN: usize = 256;
 
 
 /// Initialize HTTP server and WebSocket endpoints.
-pub fn create_endpoints(msg_tx: mpsc::SyncSender<InternalMessage>) -> anyhow::Result<()> {
+pub fn create_endpoints(msg_tx: flume::Sender<InternalMessage>) -> anyhow::Result<()> {
     let server_configuration = esp_idf_svc::http::server::Configuration {
         stack_size: 10240,
         ..Default::default()
@@ -80,7 +82,7 @@ pub fn create_endpoints(msg_tx: mpsc::SyncSender<InternalMessage>) -> anyhow::Re
 
             // Remove null terminator
             match serde_json::from_str::<ClientMessage>(&user_string[0 .. user_string.len() - 1]) {
-                Ok(msg) => msg_tx.send(InternalMessage::ClientMessage(msg)).unwrap(),
+                Ok(msg) => msg_tx.try_send(InternalMessage::ClientMessage(msg)).unwrap(),
                 Err(e)  => println!("Failed to parse JSON:\n\n{}\n\n{}", e, user_string),
             }
             

@@ -1,8 +1,9 @@
-//! ![banner](https://ghoust.s3.fr-par.scw.cloud/ledswarm_banner.svg)
+//! ![banner](https://ledswarm-book.s3.nl-ams.scw.cloud/Slim_LEDswarm_Banner2.svg)
 //!
 //! The official firmware for ESP32-based LEDswarm controller boards.
 //! 
-//!
+//! This crate implements a main loop along with several peripheral threads which share memory through communicating. All of the threads communicate via channels with the main loop,
+//! using the [`InternalMessage`] enum from the `ledswarm_protocol` library to exchange commands and data packets.
 
 use colored::*;
 use esp_idf_svc::hal::prelude::*;
@@ -68,8 +69,8 @@ fn main() -> anyhow::Result<()> {
     ).unwrap();
 
     let wifi = AsyncWifi::wrap(wifi, sys_loop.clone(), timer.clone()).unwrap();
-    let (msg_tx, msg_rx): (mpsc::SyncSender<InternalMessage>, mpsc::Receiver<InternalMessage>)   = mpsc::sync_channel(512);
-    let (uwb_out_tx, uwb_out_rx): (mpsc::SyncSender<Frame>, mpsc::Receiver<Frame>)                       = mpsc::sync_channel(512);
+    let (msg_tx, msg_rx): (flume::Sender<InternalMessage>, flume::Receiver<InternalMessage>)  = flume::bounded(512);
+    let (uwb_out_tx, uwb_out_rx): (flume::Sender<Frame>, flume::Receiver<Frame>)     = flume::bounded(512);
 
     println!("{}  Initializing controller ...", "[LEDswarm]".yellow().bold());
     let mut controller = Controller::new(msg_rx, uwb_out_tx);

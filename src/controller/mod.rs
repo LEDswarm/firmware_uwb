@@ -1,7 +1,9 @@
+//! A struct which manages the state of the controller and its peripherals, including the main event loop.
 
 use std::sync::mpsc;
 use std::time::{Instant, /*Duration*/};
 use std::sync::Arc;
+use std::collections::HashMap;
 
 use colored::Colorize;
 use esp_idf_svc::{
@@ -84,12 +86,14 @@ pub enum ClientGameState {
 pub struct Controller<'a> {
     pub mode: ControllerMode,
     pub connected_controllers: Vec<RemoteController>,
+    /// Maps message types to pieces of code which then perform the desired behavior on the controller.
+    pub messagelets: HashMap<String, &'static dyn Messagelet>,
     pub sensors: Sensors,
     pub event_bus: Arc<EventBus>,
     rx: mpsc::Receiver<ControllerMode>,
     tx: mpsc::Sender<ControllerMode>,
-    msg_rx: mpsc::Receiver<InternalMessage>,
-    uwb_out_tx: mpsc::SyncSender<Frame>,
+    msg_rx: flume::Receiver<InternalMessage>,
+    uwb_out_tx: flume::Sender<Frame>,
     pub start_time: Instant,
     wifi: Option<WifiController<'a>>,
     led:  Led,
@@ -109,12 +113,22 @@ impl Sensors {
     }
 }
 
+/// A piece of code responsible for executing a specific behavior on the controller, depending on its mode and state.
+pub trait Messagelet {
+    fn execute(
+        &self,
+        controller: &mut Controller,
+        msg:        InternalMessage,
+    ) -> Result<(), String>;
+}
+
 impl<'a> Controller<'a> {
-    pub fn new(msg_rx: mpsc::Receiver<InternalMessage>, uwb_out_tx: mpsc::SyncSender<Frame>) -> Self {
+    pub fn new(msg_rx: flume::Receiver<InternalMessage>, uwb_out_tx: flume::Sender<Frame>) -> Self {
         let (tx, rx): (mpsc::Sender<ControllerMode>, mpsc::Receiver<ControllerMode>) = mpsc::channel();
 
         Self {
             mode:       ControllerMode::Discovery,
+            messagelets: HashMap::new(),
             connected_controllers: vec![],
             sensors:    Sensors::new(),
             event_bus:  Arc::new(EventBus::new()),
@@ -145,7 +159,7 @@ impl<'a> Controller<'a> {
     }
 
     fn send_uwb_frame(&mut self, frame: Frame) {
-        self.uwb_out_tx.send(frame).unwrap();
+        self.uwb_out_tx.try_send(frame).unwrap();
     }
 
     fn handle_client_msg(&mut self, msg: ClientMessage) {
@@ -159,7 +173,7 @@ impl<'a> Controller<'a> {
                     ControllerMode::Master { .. } => {
                         println!("Sending brightness change over UWB out tx");
                         // Broadcast brightness to all clients
-                        self.uwb_out_tx.send(Frame::new().client_message(ClientMessage::SetBrightness(brightness))).unwrap();
+                        self.uwb_out_tx.try_send(Frame::new().client_message(ClientMessage::SetBrightness(brightness))).unwrap();
                     },
                     _ => {},
                 }
@@ -175,7 +189,7 @@ impl<'a> Controller<'a> {
                         });
 
                         // Broadcast round start to all clients
-                        self.uwb_out_tx.send(Frame::new().client_message(ClientMessage::StartRound(game_identifier))).unwrap();
+                        self.uwb_out_tx.try_send(Frame::new().client_message(ClientMessage::StartRound(game_identifier))).unwrap();
                     },
                     ControllerMode::Client { game, .. } => {
                         *game = Some(ClientGameState::LastOneStanding {
@@ -403,12 +417,12 @@ impl<'a> Controller<'a> {
 
         let delay = esp_idf_hal::delay::Delay::new_default();
 
-        self.uwb_out_tx.send(Frame::join_request(time)).unwrap();
+        self.uwb_out_tx.try_send(Frame::join_request(time)).unwrap();
         println!("Sent UWB join request to see if there is a master");
 
         loop {
             // Send tick message for time synchronization. This should keep the UWB connection alive.
-            // self.uwb_out_tx.send(Frame::tick(time)).unwrap();
+            // self.uwb_out_tx.try_send(Frame::tick(time)).unwrap();
 
             //println!("Loop iteration {}", time);
 
@@ -429,7 +443,7 @@ impl<'a> Controller<'a> {
                 time = 0;
             }
 
-            delay.delay_ms(1);
+            delay.delay_us(50);
         }
 
         println!("Loop done");

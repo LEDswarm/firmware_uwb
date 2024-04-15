@@ -1,4 +1,4 @@
-//! Controller for the Inertial Measurement Unit (IMU)
+//! Peripheral controller for the Inertial Measurement Unit (IMU)
 
 use std::sync::mpsc::SyncSender;
 
@@ -12,7 +12,7 @@ use ledswarm_protocol::InternalMessage;
 
 use crate::moving_average;
 
-pub fn start(tx: SyncSender<InternalMessage>, i2c: I2C0, sda: Gpio21, scl: Gpio22) -> Result<(), EspError> {
+pub fn start(tx: flume::Sender<InternalMessage>, i2c: I2C0, sda: Gpio21, scl: Gpio22) -> Result<(), EspError> {
     std::thread::spawn(move || {
         let delay = esp_idf_hal::delay::Delay::new_default();
         let config = I2cConfig::new().baudrate(100.kHz().into());
@@ -34,7 +34,7 @@ pub fn start(tx: SyncSender<InternalMessage>, i2c: I2C0, sda: Gpio21, scl: Gpio2
             if delta_difference > 0.02 {
                 // The receiving end in the controller MUST handle these events or the buffer overflow will cause an out-of-memory error after about 15 seconds.
                 // println!("Sending accelerometer jolt delta: {:?}", delta);
-                tx.send(InternalMessage::AccelerometerJoltDelta(delta)).unwrap();
+                tx.try_send(InternalMessage::AccelerometerJoltDelta(delta)).unwrap();
                 last_delta = delta;
             }
             delay.delay_ms(2);

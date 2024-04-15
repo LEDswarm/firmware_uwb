@@ -1,3 +1,5 @@
+//! Peripheral controller for the Ultra-Wideband radio
+
 use dw3000_ng::hl::SendTime;
 use esp_idf_svc::hal::gpio::{Gpio4, Gpio18, Gpio19, Gpio23, Gpio27, Gpio34};
 use esp_idf_hal::sys::EspError;
@@ -50,8 +52,8 @@ fn reset_dw3000(rst: Gpio27) -> Result<(), EspError> {
 
 /// Initialize the onboard ultra-wideband radio.
 pub fn start(
-    tx: SyncSender<InternalMessage>,
-    packet_rx: Receiver<Frame>,
+    tx:         flume::Sender<InternalMessage>,
+    packet_rx:  flume::Receiver<Frame>,
     spi:        SPI3,
     serial_out: Gpio23,
     serial_in:  Gpio19,
