@@ -121,6 +121,7 @@ pub fn start(
 
                     // Wait to send the frame, in a non-blocking way
                     loop {
+                        println!("Waiting to send frame");
                         if let Ok(t) = sending.s_wait() {
                             send_result = t;
                             break;
@@ -149,6 +150,7 @@ pub fn start(
                     let result;
 
                     loop {
+                        //println!("Waiting to receive frame");
                         if let Ok(t) = receiving.r_wait(&mut buffer) {
                             result = t;
                             break;
