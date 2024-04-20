@@ -112,11 +112,25 @@ fn main() -> anyhow::Result<()> {
         ).expect("Failed to initialize UWB");
     })?;
 
+    // Configure and Initialize Timer Drivers
+    let config = esp_idf_hal::timer::config::Config::new();
+    let mut timer1 = esp_idf_hal::timer::TimerDriver::new(peripherals.timer00, &config).unwrap();
+    let mut timer2 = esp_idf_hal::timer::TimerDriver::new(peripherals.timer10, &config).unwrap();
+
+    // Set Counter Start Value to Zero
+    timer1.set_counter(0_u64).unwrap();
+    timer2.set_counter(0_u64).unwrap();
+
+    // Enable Counter
+    timer1.enable(true).unwrap();
+    timer2.enable(true).unwrap();
+
+
     println!("{}  Launched UWB thread", "[LEDswarm]".yellow().bold());
 
     println!("{}  Starting controller event loop", "[LEDswarm]".yellow().bold());
 
-    controller.start_event_loop().expect("Failed to start controller event loop"); 
+    controller.start_event_loop(timer1).expect("Failed to start controller event loop"); 
 
     Ok(())
 }

@@ -403,7 +403,7 @@ impl<'a> Controller<'a> {
         }
     }
 
-    pub fn start_event_loop(&mut self) -> Result<(), EspError> {
+    pub fn start_event_loop(&mut self, timer: esp_idf_hal::timer::TimerDriver) -> Result<(), EspError> {
         println!("## {}  Initializing controller loop", "[Controller]".bright_blue().bold());
         let mut time = 0u16;
         let delta_threshold = 0.4;
@@ -443,7 +443,7 @@ impl<'a> Controller<'a> {
                 time = 0;
             }
 
-            delay.delay_us(50);
+            delay.delay_us(100);
         }
 
         println!("Loop done");
