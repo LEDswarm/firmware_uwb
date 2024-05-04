@@ -150,20 +150,29 @@ pub fn start(
                     // Re-enable the interrupt as it is disabled every time it is triggered
                     dw3000_irq.enable_interrupt().unwrap();
 
-                    if let Ok(m) = receiving.r_wait(&mut buffer) {
-                        println!("Got RX interrupt message");
-                        let payload = m.frame.payload();
+                    let mut i = 0;
 
-                        if let Some(bytes) = payload {
-                            if let Ok(frame) = Frame::try_from(bytes.to_vec()) {
-                                // println!("## {}  Received packet: {:?}", "[uwb]".bright_blue().bold(), frame);
-                                tx.send(InternalMessage::Frame(Box::new(frame))).unwrap();
-                            } else {
-                                println!("Failed to parse UWB packet, skipping");
+                    while i < 10 {
+                        if let Ok(m) = receiving.r_wait(&mut buffer) {
+                            println!("Got RX interrupt message");
+                            let payload = m.frame.payload();
+
+                            if let Some(bytes) = payload {
+                                if let Ok(frame) = Frame::try_from(bytes.to_vec()) {
+                                    // println!("## {}  Received packet: {:?}", "[uwb]".bright_blue().bold(), frame);
+                                    tx.send(InternalMessage::Frame(Box::new(frame))).unwrap();
+                                } else {
+                                    println!("Failed to parse UWB packet, skipping");
+                                }
                             }
+                            break;
+                        } else {
+                            delay.delay_ms(1);
                         }
-                        break;
+
+                        i += 1;
                     }
+
                 } else {
                     delay.delay_ms(1);
                 }
