@@ -6,6 +6,7 @@
 //! using the [`InternalMessage`] enum from the `ledswarm_protocol` library to exchange commands and data packets.
 
 use colored::*;
+use esp_idf_hal::sys::EspError;
 use esp_idf_svc::hal::prelude::*;
 use esp_idf_svc::netif::{EspNetif, NetifStack};
 use esp_idf_svc::wifi::{WifiDriver, EspWifi, AsyncWifi};
@@ -43,7 +44,26 @@ struct RootDocument {
     version: String,
 }
 
-fn main() -> anyhow::Result<()> {
+fn initialize_esp32_wifi<'a>(
+    modem: esp_idf_hal::modem::Modem,
+    sys_loop: EspSystemEventLoop,
+    nvs: EspDefaultNvsPartition,
+    timer: EspTaskTimerService,
+) -> Result<AsyncWifi<EspWifi<'a>>, EspError> {
+    println!("## {}  Initializing Wi-Fi ...", "[LEDswarm]".yellow().bold());
+
+    let wifi_driver = WifiDriver::new(modem, sys_loop.clone(), Some(nvs.clone()))?;
+
+    let wifi = EspWifi::wrap_all(
+        wifi_driver,
+        EspNetif::new(NetifStack::Sta).unwrap(),
+        EspNetif::new(NetifStack::Ap).unwrap(),
+    ).unwrap();
+
+    Ok(AsyncWifi::wrap(wifi, sys_loop.clone(), timer.clone()).unwrap())
+}
+
+fn init_firmware() -> anyhow::Result<()> {
     // It is necessary to call this function once. Otherwise some patches to the runtime
     // implemented by esp-idf-sys might not link properly. See https://github.com/esp-rs/esp-idf-template/issues/71
     esp_idf_svc::sys::link_patches();
@@ -58,17 +78,8 @@ fn main() -> anyhow::Result<()> {
     let sys_loop = EspSystemEventLoop::take().unwrap();
     let nvs = EspDefaultNvsPartition::take().unwrap();
 
+    let wifi = initialize_esp32_wifi(peripherals.modem, sys_loop.clone(), nvs.clone(), timer.clone())?;
 
-    println!("## {}  Initializing Wi-Fi ...", "[LEDswarm]".yellow().bold());
-    let wifi_driver = WifiDriver::new(peripherals.modem, sys_loop.clone(), Some(nvs.clone())).unwrap();
-
-    let wifi = EspWifi::wrap_all(
-        wifi_driver,
-        EspNetif::new(NetifStack::Sta).unwrap(),
-        EspNetif::new(NetifStack::Ap).unwrap(),
-    ).unwrap();
-
-    let wifi = AsyncWifi::wrap(wifi, sys_loop.clone(), timer.clone()).unwrap();
     let (msg_tx, msg_rx): (flume::Sender<InternalMessage>, flume::Receiver<InternalMessage>)  = flume::bounded(512);
     let (uwb_out_tx, uwb_out_rx): (flume::Sender<Frame>, flume::Receiver<Frame>)     = flume::bounded(512);
 
@@ -133,4 +144,8 @@ fn main() -> anyhow::Result<()> {
     controller.start_event_loop(timer1).expect("Failed to start controller event loop"); 
 
     Ok(())
+}
+
+fn main() -> anyhow::Result<()> {
+    init_firmware()
 }
