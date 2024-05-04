@@ -144,31 +144,25 @@ pub fn start(
         
                 // Waiting for an incoming frame
                 if WAS_INTERRUPT_TRIGGERED.load(Ordering::Relaxed) {
+                    println!("Got RX interrupt");
                     // Reset global flag
                     WAS_INTERRUPT_TRIGGERED.store(false, Ordering::Relaxed);
                     // Re-enable the interrupt as it is disabled every time it is triggered
                     dw3000_irq.enable_interrupt().unwrap();
-                    let result;
 
-                    loop {
-                        println!("Waiting to receive frame");
-                        if let Ok(t) = receiving.r_wait(&mut buffer) {
-                            result = t;
-                            break;
-                        } else {
-                            delay.delay_ms(1);
+                    if let Ok(m) = receiving.r_wait(&mut buffer) {
+                        println!("Got RX interrupt message");
+                        let payload = m.frame.payload();
+
+                        if let Some(bytes) = payload {
+                            if let Ok(frame) = Frame::try_from(bytes.to_vec()) {
+                                // println!("## {}  Received packet: {:?}", "[uwb]".bright_blue().bold(), frame);
+                                tx.send(InternalMessage::Frame(Box::new(frame))).unwrap();
+                            } else {
+                                println!("Failed to parse UWB packet, skipping");
+                            }
                         }
-                    }
-
-                    let payload = result.frame.payload();
-
-                    if let Some(bytes) = payload {
-                        if let Ok(frame) = Frame::try_from(bytes.to_vec()) {
-                            // println!("## {}  Received packet: {:?}", "[uwb]".bright_blue().bold(), frame);
-                            tx.send(InternalMessage::Frame(Box::new(frame))).unwrap();
-                        } else {
-                            println!("Failed to parse UWB packet, skipping");
-                        }
+                        break;
                     }
                 } else {
                     delay.delay_ms(1);
