@@ -104,7 +104,7 @@ fn init_firmware() -> anyhow::Result<()> {
 
     // TODO: make sure the buffer is always consumed to prevent memory leaks!!!
     let accel_tx = msg_tx.clone();
-    imu::start(accel_tx, peripherals.i2c0, peripherals.pins.gpio21, peripherals.pins.gpio22)?;
+    // imu::start(accel_tx, peripherals.i2c0, peripherals.pins.gpio21, peripherals.pins.gpio22)?;
 
     println!("{}  Launched IMU thread", "[LEDswarm]".yellow().bold());
 
