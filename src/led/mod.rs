@@ -62,7 +62,7 @@ impl Led {
             (green as f32 * self.config.intensity) as u8,
             (blue as f32 * self.config.intensity) as u8,
             White((white as f32 * self.config.intensity) as u8,),
-        ))).take(7);
+        ))).take(8);
 
         self.driver.write(pixels).unwrap();
     }
